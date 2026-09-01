@@ -1,0 +1,44 @@
+import { Router } from 'express';
+import { productsRouter } from './products.js';
+import { stockRouter } from './stock.js';
+import { customersRouter } from './customers.js';
+import { bikesRouter } from './bikes.js';
+import { servicesRouter } from './services.js';
+import { suppliersRouter } from './suppliers.js';
+import { salesRouter } from './sales.js';
+import { workOrdersRouter } from './workOrders.js';
+import { mercadoPagoWebhook, paymentsRouter } from './payments.js';
+import { cashRouter } from './cash.js';
+import { dashboardRouter } from './dashboard.js';
+import { settingsRouter } from './settings.js';
+import { searchRouter } from './search.js';
+import { authRouter } from './auth.js';
+import { usersRouter } from './users.js';
+import { fiscalRouter } from './fiscal.js';
+import { agendaRouter } from './agenda.js';
+import { notificationsRouter } from './notifications.js';
+import { requireAuth, requireCapability } from '../middleware/auth.js';
+
+export const router = Router();
+
+router.use('/auth', authRouter);
+router.post('/payments/webhook', mercadoPagoWebhook);
+router.use(requireAuth);
+
+router.use('/products', requireCapability('products.read'), productsRouter);
+router.use('/stock', requireCapability('stock.read'), stockRouter);
+router.use('/customers', requireCapability('customers.read'), customersRouter);
+router.use('/bikes', requireCapability('bikes'), bikesRouter);
+router.use('/services', requireCapability('services.read'), servicesRouter);
+router.use('/suppliers', requireCapability('suppliers'), suppliersRouter);
+router.use('/sales', requireCapability('sales'), salesRouter);
+router.use('/work-orders', requireCapability('workshop'), workOrdersRouter);
+router.use('/payments', requireCapability('payments'), paymentsRouter);
+router.use('/cash', requireCapability('cash'), cashRouter);
+router.use('/dashboard', requireCapability('dashboard'), dashboardRouter);
+router.use('/settings', requireCapability('settings'), settingsRouter);
+router.use('/search', requireCapability('search'), searchRouter);
+router.use('/users', requireCapability('users'), usersRouter);
+router.use('/fiscal', requireCapability('sales'), fiscalRouter);
+router.use('/agenda', requireCapability('agenda'), agendaRouter);
+router.use('/notifications', requireCapability('workshop'), notificationsRouter);
