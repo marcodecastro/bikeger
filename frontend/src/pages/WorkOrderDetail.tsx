@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { del, get, patch, post } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -9,14 +9,15 @@ import { useBusy } from '../lib/useBusy';
 import type { CatalogService, MpPixPayment, Product, Receipt, WorkOrder } from '../types';
 import { MoneyInput } from '../components/MoneyInput';
 import { ReceiptModal } from '../components/ReceiptModal';
+import { EntitySearch } from '../components/EntitySearch';
 
 export function WorkOrderDetail() {
   const { can } = useAuth();
   const { id } = useParams();
   const [order, setOrder] = useState<WorkOrder | null>(null);
-  const [products, setProducts] = useState<Product[]>([]);
   const [services, setServices] = useState<CatalogService[]>([]);
   const [productId, setProductId] = useState('');
+  const [productLabel, setProductLabel] = useState('');
   const [partQty, setPartQty] = useState(1);
   const [serviceId, setServiceId] = useState('');
   const [payMethod, setPayMethod] = useState('pix');
@@ -30,6 +31,13 @@ export function WorkOrderDetail() {
   pixRef.current = pix;
   orderRef.current = order;
   const [mechanicNames, setMechanicNames] = useState<string[]>([]);
+  const complaintSnap = useRef('');
+  const diagnosisSnap = useRef('');
+  const mechanicSnap = useRef('');
+  const searchProducts = useCallback(
+    (q: string) => get<Product[]>(`/products?q=${encodeURIComponent(q)}&active=true`),
+    [],
+  );
 
   async function load() {
     if (!id) return;
@@ -38,7 +46,6 @@ export function WorkOrderDetail() {
 
   useEffect(() => {
     void load();
-    get<Product[]>('/products?active=true').then(setProducts).catch(() => undefined);
     get<CatalogService[]>('/services?active=true').then(setServices).catch(() => undefined);
     get<{ mechanicNames: string[] }>('/work-orders/mechanics')
       .then((data) => setMechanicNames(data.mechanicNames || []))
@@ -96,47 +103,57 @@ export function WorkOrderDetail() {
   const closed = isOsTerminal(order.status);
   const statusOptions = allowedOsStatuses(order.status);
 
-  async function addPart() {
-    await run(async () => {
-      try {
+  async function saveFields(body: Record<string, unknown>, restore: () => void) {
+    try {
+      await run(async () => {
         setError('');
-        setOrder(
-          await post<WorkOrder>(`/work-orders/${id}/parts`, {
-            productId,
-            quantity: partQty,
-          }),
-        );
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Falha ao lançar peça');
-      }
-    });
+        setOrder(await patch<WorkOrder>(`/work-orders/${id}`, body));
+      });
+    } catch (err) {
+      restore();
+      setError(err instanceof Error ? err.message : 'Falha ao salvar a OS');
+    }
+  }
+
+  async function runOs(work: () => Promise<void>, fallback: string) {
+    try {
+      await run(async () => {
+        setError('');
+        await work();
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : fallback);
+    }
+  }
+
+  async function addPart() {
+    await runOs(async () => {
+      setOrder(
+        await post<WorkOrder>(`/work-orders/${id}/parts`, {
+          productId,
+          quantity: partQty,
+        }),
+      );
+      setProductId('');
+      setProductLabel('');
+    }, 'Falha ao lançar peça');
   }
 
   async function addService() {
-    await run(async () => {
-      try {
-        setError('');
-        setOrder(await post<WorkOrder>(`/work-orders/${id}/services`, { serviceId, quantity: 1 }));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Falha ao lançar serviço');
-      }
-    });
+    await runOs(async () => {
+      setOrder(await post<WorkOrder>(`/work-orders/${id}/services`, { serviceId, quantity: 1 }));
+    }, 'Falha ao lançar serviço');
   }
 
   async function registerPayment() {
-    await run(async () => {
-      try {
-        setError('');
-        setOrder(
-          await post(`/work-orders/${id}/payments`, {
-            method: payMethod,
-            amount: payAmount || openAmount,
-          }),
-        );
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Falha ao registrar pagamento');
-      }
-    });
+    await runOs(async () => {
+      setOrder(
+        await post(`/work-orders/${id}/payments`, {
+          method: payMethod,
+          amount: payAmount || openAmount,
+        }),
+      );
+    }, 'Falha ao registrar pagamento');
   }
 
   async function createPix() {
@@ -203,6 +220,37 @@ export function WorkOrderDetail() {
               Avisar no WhatsApp
             </button>
           ) : null}
+          {['aberta', 'diagnostico', 'orcamento'].includes(order.status) ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={busy}
+              aria-busy={busy}
+              onClick={() =>
+                void run(async () => {
+                  try {
+                    setError('');
+                    const notice = await post<{
+                      _id: string;
+                      waUrl?: string;
+                      status: string;
+                    }>(`/notifications/work-orders/${id}/quote`);
+                    await load();
+                    if (notice.status === 'enviado') return;
+                    if (notice.waUrl) {
+                      window.open(notice.waUrl, '_blank');
+                      await post(`/notifications/${notice._id}/sent`);
+                      await load();
+                    } else setError('Cliente sem telefone válido para WhatsApp.');
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Falha ao enviar o orçamento');
+                  }
+                })
+              }
+            >
+              Enviar orçamento
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn"
@@ -223,18 +271,13 @@ export function WorkOrderDetail() {
               aria-busy={busy}
               onChange={(event) => {
                 const status = event.target.value;
-                void run(async () => {
-                  try {
-                    setError('');
-                    if (status === 'cancelada') {
-                      setOrder(await post<WorkOrder>(`/work-orders/${id}/cancel`));
-                      return;
-                    }
-                    setOrder(await patch<WorkOrder>(`/work-orders/${id}`, { status }));
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'Falha ao atualizar status');
+                void runOs(async () => {
+                  if (status === 'cancelada') {
+                    setOrder(await post<WorkOrder>(`/work-orders/${id}/cancel`));
+                    return;
                   }
-                });
+                  setOrder(await patch<WorkOrder>(`/work-orders/${id}`, { status }));
+                }, 'Falha ao atualizar status');
               }}
             >
               {statusOptions.map((value) => (
@@ -249,7 +292,15 @@ export function WorkOrderDetail() {
             <textarea
               value={order.complaint}
               disabled={closed}
-              onBlur={() => void patch(`/work-orders/${id}`, { complaint: order.complaint })}
+              onFocus={() => {
+                complaintSnap.current = order.complaint;
+              }}
+              onBlur={() => {
+                if (closed || order.complaint === complaintSnap.current) return;
+                void saveFields({ complaint: order.complaint }, () =>
+                  setOrder((current) => (current ? { ...current, complaint: complaintSnap.current } : current)),
+                );
+              }}
               onChange={(event) => setOrder({ ...order, complaint: event.target.value })}
             />
           </label>
@@ -258,7 +309,15 @@ export function WorkOrderDetail() {
             <textarea
               value={order.diagnosis}
               disabled={closed}
-              onBlur={() => void patch(`/work-orders/${id}`, { diagnosis: order.diagnosis })}
+              onFocus={() => {
+                diagnosisSnap.current = order.diagnosis;
+              }}
+              onBlur={() => {
+                if (closed || order.diagnosis === diagnosisSnap.current) return;
+                void saveFields({ diagnosis: order.diagnosis }, () =>
+                  setOrder((current) => (current ? { ...current, diagnosis: diagnosisSnap.current } : current)),
+                );
+              }}
               onChange={(event) => setOrder({ ...order, diagnosis: event.target.value })}
             />
           </label>
@@ -268,7 +327,15 @@ export function WorkOrderDetail() {
               value={order.mechanic}
               list="os-mechanic-names"
               disabled={closed}
-              onBlur={() => void patch(`/work-orders/${id}`, { mechanic: order.mechanic })}
+              onFocus={() => {
+                mechanicSnap.current = order.mechanic;
+              }}
+              onBlur={() => {
+                if (closed || order.mechanic === mechanicSnap.current) return;
+                void saveFields({ mechanic: order.mechanic }, () =>
+                  setOrder((current) => (current ? { ...current, mechanic: mechanicSnap.current } : current)),
+                );
+              }}
               onChange={(event) => setOrder({ ...order, mechanic: event.target.value })}
             />
             <datalist id="os-mechanic-names">
@@ -367,15 +434,21 @@ export function WorkOrderDetail() {
         </article>
 
         <article className="card">
-          <h3>Peças (reserva, depois consumo)</h3>
+          <h3>Peças {['diagnostico', 'orcamento'].includes(order.status) ? '(orçamento, sem reservar)' : '(reserva, depois consumo)'}</h3>
           {order.parts.map((item) => (
             <div className="cart-line" key={item._id}>
               <span>
                 {item.quantity}x {item.name}
-                <div className="muted">{item.stockStatus === 'consumida' ? 'consumida' : 'reservada'}</div>
+                <div className="muted">
+                  {item.stockStatus === 'consumida'
+                    ? 'consumida'
+                    : item.stockStatus === 'orcamento'
+                      ? 'orçamento'
+                      : 'reservada'}
+                </div>
               </span>
               <span className="money">{formatBRL(item.total)}</span>
-              {closed || item.stockStatus === 'consumida' ? null : (
+              {closed || item.stockStatus === 'consumida' || item.stockStatus === 'orcamento' ? null : (
                 <button
                   type="button"
                   className="btn"
@@ -418,23 +491,29 @@ export function WorkOrderDetail() {
           ))}
           {closed ? null : (
           <div className="row" style={{ marginTop: 12 }}>
-            <select value={productId} onChange={(event) => setProductId(event.target.value)}>
-              <option value="">Peça do estoque</option>
-              {products.map((product) => (
-                <option key={product._id} value={product._id}>
-                  {product.name} ({product.availableStock ?? product.currentStock} livre)
-                </option>
-              ))}
-            </select>
+            <EntitySearch
+              label="Peça do estoque"
+              placeholder="Nome, SKU ou código"
+              value={productId}
+              selectedLabel={productLabel}
+              fetchItems={searchProducts}
+              getKey={(item) => item._id}
+              getLabel={(item) => item.name}
+              getExtra={(item) => `${item.sku} · ${item.availableStock ?? item.currentStock} livre`}
+              onSelect={(item) => {
+                setProductId(item?._id || '');
+                setProductLabel(item?.name || '');
+              }}
+            />
             <input
               type="number"
               min={1}
-              style={{ width: 70 }}
+              className="qty-input"
               value={partQty}
               onChange={(event) => setPartQty(Number(event.target.value))}
             />
-            <button type="button" className="btn" disabled={busy} aria-busy={busy} onClick={() => void addPart()}>
-              Reservar peça
+            <button type="button" className="btn" disabled={busy || !productId} aria-busy={busy} onClick={() => void addPart()}>
+              {['diagnostico', 'orcamento'].includes(order.status) ? 'Incluir no orçamento' : 'Reservar peça'}
             </button>
           </div>
           )}
@@ -477,12 +556,12 @@ export function WorkOrderDetail() {
             <p>Status: {pix.status}</p>
             {pix.qrCodeBase64 ? (
               <img
+                className="pix-qr"
                 alt="QR Code PIX"
                 src={`data:image/png;base64,${pix.qrCodeBase64}`}
-                style={{ width: 180, background: '#fff', padding: 8, borderRadius: 8 }}
               />
             ) : null}
-            <p className="muted">{pix.qrCode}</p>
+            <p className="muted pix-payload">{pix.qrCode}</p>
             {isOpenPixStatus(pix.status) ? (
               <p className="muted">O status atualiza sozinho quando o PIX cair.</p>
             ) : null}
@@ -501,7 +580,11 @@ export function WorkOrderDetail() {
         </article>
       )}
 
-      {error ? <p className="error">{error}</p> : null}
+      {error ? (
+        <p className="error" role="alert" aria-live="polite">
+          {error}
+        </p>
+      ) : null}
       {order.readyNotifiedAt ? (
         <p className="muted">Cliente avisado em {new Date(order.readyNotifiedAt).toLocaleString('pt-BR')}</p>
       ) : null}

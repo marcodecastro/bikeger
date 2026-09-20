@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { get, post } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { Customer } from '../types';
 import { Modal } from '../components/Modal';
+import { BikeFields } from '../components/BikeFields';
 
 export function Customers() {
   const { can } = useAuth();
+  const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
@@ -14,6 +16,10 @@ export function Customers() {
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [document, setDocument] = useState('');
+  const [brand, setBrand] = useState('');
+  const [model, setModel] = useState('');
+  const [type, setType] = useState('mtb');
+  const [error, setError] = useState('');
 
   async function load() {
     const list = await get<Customer[]>(`/customers${q ? `?q=${encodeURIComponent(q)}` : ''}`);
@@ -25,13 +31,25 @@ export function Customers() {
   }, [q]);
 
   async function create() {
-    await post('/customers', { name, phone, email, document });
-    setOpen(false);
-    setName('');
-    setPhone('');
-    setEmail('');
-    setDocument('');
-    await load();
+    try {
+      setError('');
+      const customer = await post<Customer>('/customers', { name, phone, email, document });
+      if (brand.trim() && model.trim()) {
+        await post('/bikes', { customer: customer._id, brand: brand.trim(), model: model.trim(), type });
+      }
+      setOpen(false);
+      setName('');
+      setPhone('');
+      setEmail('');
+      setDocument('');
+      setBrand('');
+      setModel('');
+      setType('mtb');
+      await load();
+      navigate(`/clientes/${customer._id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao salvar o cliente');
+    }
   }
 
   return (
@@ -94,6 +112,23 @@ export function Customers() {
               CPF
               <input value={document} onChange={(event) => setDocument(event.target.value)} />
             </label>
+            <h3 style={{ margin: '8px 0 0' }}>Bicicleta (opcional)</h3>
+            <p className="muted" style={{ margin: 0 }}>
+              Se já souber a bike, cadastre agora. Dá para incluir depois na ficha.
+            </p>
+            <BikeFields
+              brand={brand}
+              model={model}
+              type={type}
+              onBrand={setBrand}
+              onModel={setModel}
+              onType={setType}
+            />
+            {error ? (
+              <p className="error" role="alert" aria-live="polite">
+                {error}
+              </p>
+            ) : null}
             <button type="button" className="btn btn-primary" onClick={() => void create()}>
               Salvar
             </button>

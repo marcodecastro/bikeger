@@ -3,6 +3,8 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { get } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { homeFor, ROLE_BLURBS, ROLE_LABELS, type Role } from '../lib/permissions';
+import { NoteMasterFooter } from '../components/NoteMasterFooter';
+import { StoreBrand } from '../components/StoreBrand';
 
 const PROFILES: { role: Role; login: string }[] = [
   { role: 'dono', login: 'dono' },
@@ -15,14 +17,22 @@ export function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from;
-  const [loginName, setLoginName] = useState('dono');
+  const [loginName, setLoginName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [demoUsers, setDemoUsers] = useState(false);
+  const [storeName, setStoreName] = useState('BikeGer');
+  const [storeLogo, setStoreLogo] = useState('');
 
   useEffect(() => {
-    get<{ demoUsers: boolean }>('/auth/public-config')
-      .then((config) => setDemoUsers(config.demoUsers))
+    get<{ demoUsers: boolean; storeName?: string; storeLogo?: string }>('/auth/public-config')
+      .then((config) => {
+        setDemoUsers(config.demoUsers);
+        const name = config.storeName?.trim() || 'BikeGer';
+        setStoreName(name);
+        setStoreLogo(config.storeLogo || '');
+        document.title = name;
+      })
       .catch(() => undefined);
   }, []);
 
@@ -42,32 +52,33 @@ export function Login() {
   return (
     <div className="login-screen">
       <div className="login-card">
-        <div className="brand" style={{ marginBottom: 20 }}>
-          <div className="brand-mark">BG</div>
-          <div>
-            <h1>BikeGer</h1>
-            <p>entre com o perfil do turno</p>
-          </div>
-        </div>
+        <StoreBrand name={storeName} logo={storeLogo} tagline="entre com o perfil do turno" />
 
-        <div className="login-roles">
-          {PROFILES.map((profile) => (
-            <button
-              type="button"
-              key={profile.role}
-              className={`login-role ${loginName === profile.login ? 'active' : ''}`}
-              onClick={() => setLoginName(profile.login)}
-            >
-              <strong>{ROLE_LABELS[profile.role]}</strong>
-              <span>{ROLE_BLURBS[profile.role]}</span>
-            </button>
-          ))}
-        </div>
+        {demoUsers ? (
+          <div className="login-roles">
+            {PROFILES.map((profile) => (
+              <button
+                type="button"
+                key={profile.role}
+                className={`login-role ${loginName === profile.login ? 'active' : ''}`}
+                onClick={() => setLoginName(profile.login)}
+              >
+                <strong>{ROLE_LABELS[profile.role]}</strong>
+                <span>{ROLE_BLURBS[profile.role]}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <form onSubmit={(event) => void submit(event)}>
           <label className="field">
             Login
-            <input value={loginName} onChange={(event) => setLoginName(event.target.value)} autoComplete="username" />
+            <input
+              value={loginName}
+              onChange={(event) => setLoginName(event.target.value)}
+              autoComplete="username"
+              autoFocus
+            />
           </label>
           <label className="field">
             Senha
@@ -76,7 +87,6 @@ export function Login() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"
-              autoFocus
             />
           </label>
           {error ? <p className="error">{error}</p> : null}
@@ -91,6 +101,7 @@ export function Login() {
           </p>
         ) : null}
       </div>
+      <NoteMasterFooter />
     </div>
   );
 }

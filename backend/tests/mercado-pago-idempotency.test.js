@@ -11,9 +11,14 @@ import {
   createCheckoutPreference,
   createPixPayment,
   findOpenCharge,
+  processWebhookPayment,
   syncPaymentStatus,
 } from '../src/services/mercadoPagoService.js';
 import { ensureOpenRegister } from './helpers/openCash.js';
+import { CashRegister } from '../src/models/CashRegister.js';
+import { CASH_CLOSED_MESSAGE, openRegister } from '../src/services/cashService.js';
+import { PaymentApplyFailure } from '../src/models/PaymentApplyFailure.js';
+import { flushJobs } from '../src/utils/jobs.js';
 
 const uri = process.env.MONGODB_TEST_URI_C2 || 'mongodb://127.0.0.1:27017/bikeger_test_c2';
 
@@ -25,6 +30,7 @@ before(async () => {
 });
 
 after(async () => {
+  await flushJobs();
   await mongoose.disconnect();
 });
 
@@ -271,4 +277,126 @@ test('aprovação MP na OS não aplica o mesmo id duas vezes', async () => {
   const after = await WorkOrder.findById(order._id);
   assert.equal(after.payments.length, 1);
   assert.equal(after.paidAmount, 3000);
+});
+
+test('PIX exige caixa aberto', async () => {
+  await CashRegister.updateMany({ status: 'aberto' }, { $set: { status: 'fechado', closedAt: new Date() } });
+  await assert.rejects(
+    () =>
+      createPixPayment({
+        relatedType: 'sale',
+        relatedId: oid(),
+        title: 'Venda',
+        amount: 1000,
+        chargeRemote: async () => {
+          throw new Error('não deveria chamar o Mercado Pago');
+        },
+      }),
+    (error) => error.status === 409 && error.message === CASH_CLOSED_MESSAGE,
+  );
+  await ensureOpenRegister();
+});
+
+test('sync de paymentId desconhecido não cria cobrança', async () => {
+  const before = await Payment.countDocuments();
+  const synced = await syncPaymentStatus('mp-fantasma-inexistente', {
+    fetchRemote: async (id) => ({
+      id,
+      status: 'approved',
+      transaction_amount: 10,
+      metadata: { relatedType: 'sale', relatedId: String(oid()) },
+    }),
+  });
+  assert.equal(synced, null);
+  assert.equal(await Payment.countDocuments(), before);
+});
+
+test('baixa MP com caixa fechado grava outbox e o webhook devolve 503', async () => {
+  await CashRegister.updateMany({ status: 'aberto' }, { $set: { status: 'fechado', closedAt: new Date() } });
+  const relatedId = oid();
+  const mpId = `mp-outbox-${relatedId}`;
+  await Payment.create({
+    provider: 'mercado_pago',
+    paymentId: mpId,
+    status: 'pending',
+    amount: 1500,
+    relatedType: 'sale',
+    relatedId,
+  });
+
+  await assert.rejects(
+    () =>
+      processWebhookPayment(mpId, {
+        fetchRemote: async (id) => ({
+          id,
+          status: 'approved',
+          transaction_amount: 15,
+          metadata: { relatedType: 'sale', relatedId: String(relatedId) },
+        }),
+      }),
+    (error) => error.status === 503 && /nenhum caixa aberto/i.test(error.message),
+  );
+
+  const outbox = await PaymentApplyFailure.findOne({ mpPaymentId: mpId, status: 'open' });
+  assert.ok(outbox);
+  assert.equal(outbox.kind, 'payment_apply_failed');
+  assert.match(outbox.message, /nenhum caixa aberto/i);
+
+  await ensureOpenRegister();
+});
+
+test('abrir o caixa reaplica PIX que ficou no outbox', async () => {
+  await CashRegister.updateMany({ status: 'aberto' }, { $set: { status: 'fechado', closedAt: new Date() } });
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+  const sale = await Sale.create({
+    number: `VD-DRAIN-${suffix}`,
+    items: [
+      {
+        product: oid(),
+        sku: 'PIX-01',
+        name: 'Câmara',
+        quantity: 1,
+        unitCost: 500,
+        unitPrice: 1500,
+        total: 1500,
+      },
+    ],
+    subtotal: 1500,
+    discount: 0,
+    total: 1500,
+    payments: [],
+    paidAmount: 0,
+    status: 'aberta',
+  });
+  const mpId = `mp-drain-${sale._id}`;
+  await Payment.create({
+    provider: 'mercado_pago',
+    paymentId: mpId,
+    status: 'pending',
+    amount: 1500,
+    relatedType: 'sale',
+    relatedId: sale._id,
+  });
+
+  await assert.rejects(
+    () =>
+      processWebhookPayment(mpId, {
+        fetchRemote: async (id) => ({
+          id,
+          status: 'approved',
+          transaction_amount: 15,
+          metadata: { relatedType: 'sale', relatedId: String(sale._id) },
+        }),
+      }),
+    (error) => error.status === 503,
+  );
+  assert.ok(await PaymentApplyFailure.findOne({ mpPaymentId: mpId, status: 'open' }));
+
+  await openRegister({ openingAmount: 0, operator: 'drain' });
+
+  const after = await Sale.findById(sale._id);
+  assert.equal(after.paidAmount, 1500);
+  assert.equal(after.status, 'paga');
+  const resolved = await PaymentApplyFailure.findOne({ mpPaymentId: mpId });
+  assert.equal(resolved.status, 'resolved');
 });

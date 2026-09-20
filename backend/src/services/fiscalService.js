@@ -8,6 +8,8 @@ import { assertCents } from '../utils/money.js';
 import { httpError } from '../utils/asyncHandler.js';
 import { buildNfcePayload, focusNfeToken, missingEmitenteFields } from '../utils/nfcePayload.js';
 import { fetchWithTimeout, fiscalTimeoutMs } from '../utils/fetchTimeout.js';
+import { enqueueJob } from '../utils/jobs.js';
+import { recordAudit } from './auditService.js';
 
 function focusHost(settings) {
   return settings.fiscalEnvironment === 'producao'
@@ -112,7 +114,8 @@ export async function enqueueFiscalDocument({ relatedType, relatedId, sendToFocu
   }
 
   if (settings.fiscalEnabled && token && !missing.length) {
-    return emitFiscalDocument(doc._id, { sendToFocus });
+    if (sendToFocus) return emitFiscalDocument(doc._id, { sendToFocus });
+    enqueueJob('nfce.emit', { docId: String(doc._id) });
   }
 
   return doc;
@@ -123,9 +126,20 @@ export async function emitFiscalDocument(id, { sendToFocus } = {}) {
   if (!doc) throw httpError(404, 'Documento fiscal não encontrado');
   if (doc.status === 'autorizada') return doc;
   if (doc.status === 'cancelada') throw httpError(400, 'NFC-e cancelada não pode ser reemitida nesta referência');
-  if (doc.status === 'processando') return doc;
+  if (doc.status === 'processando') {
+    await maybeEnqueueFiscalPoll(doc);
+    return doc;
+  }
 
   const settings = await getSettings();
+  if (!settings.fiscalEnabled) {
+    doc.status = 'pendente';
+    doc.errorMessage =
+      'NFC-e desligada em Ajustes. A loja pode operar só com cupom térmico; o rascunho fica aqui se ligar depois.';
+    await doc.save();
+    return doc;
+  }
+
   const token = focusNfeToken(settings);
   const missing = missingEmitenteFields(settings);
 
@@ -171,13 +185,82 @@ export async function emitFiscalDocument(id, { sendToFocus } = {}) {
     }
 
     await claimed.save();
+    await auditFiscalResult(claimed);
+    await maybeEnqueueFiscalPoll(claimed, settings);
     return claimed;
   } catch (error) {
     claimed.status = 'rejeitada';
     claimed.errorMessage = error.message;
     await claimed.save();
+    await auditFiscalResult(claimed);
     return claimed;
   }
+}
+
+async function auditFiscalResult(doc) {
+  if (doc.status === 'autorizada') {
+    await recordAudit({
+      action: 'fiscal.authorized',
+      meta: { docId: String(doc._id), number: doc.number || '', relatedType: doc.relatedType },
+    });
+  } else if (doc.status === 'rejeitada') {
+    await recordAudit({
+      action: 'fiscal.rejected',
+      meta: { docId: String(doc._id), message: doc.errorMessage || '' },
+    });
+  }
+}
+
+async function maybeEnqueueFiscalPoll(doc, settings) {
+  const cfg = settings || (await getSettings());
+  if (!cfg.fiscalEnabled) return;
+  if (doc.status !== 'processando') return;
+  await enqueueJob('nfce.poll', { docId: String(doc._id) }, { runAfter: new Date(Date.now() + 15_000) });
+}
+
+async function defaultConsultFocus({ settings, token, doc }) {
+  const response = await fetchWithTimeout(
+    `${focusHost(settings)}/v2/nfce/${doc._id}`,
+    {
+      method: 'GET',
+      headers: { Authorization: focusAuth(token) },
+    },
+    fiscalTimeoutMs(),
+  );
+  const body = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, body };
+}
+
+export async function pollFiscalDocument(id, { consultFocus } = {}) {
+  const settings = await getSettings();
+  if (!settings.fiscalEnabled) return null;
+
+  const doc = await FiscalDocument.findById(id);
+  if (!doc) return null;
+  if (!['pendente', 'processando'].includes(doc.status)) return doc;
+
+  const token = focusNfeToken(settings);
+  if (!token) return doc;
+
+  try {
+    const result = await (consultFocus || defaultConsultFocus)({ settings, token, doc });
+    if (result.body && (result.ok || result.body.status)) {
+      applyFocusResult(doc, result.body);
+      if (!result.ok && doc.status === 'processando' && result.body.status !== 'processando_autorizacao') {
+        doc.errorMessage = result.body.mensagem_sefaz || result.body.mensagem || doc.errorMessage;
+      }
+      await doc.save();
+      await auditFiscalResult(doc);
+    }
+  } catch (error) {
+    doc.errorMessage = error.message || doc.errorMessage;
+    await doc.save();
+  }
+
+  if (doc.status === 'processando' || doc.status === 'pendente') {
+    await enqueueJob('nfce.poll', { docId: String(doc._id) }, { runAfter: new Date(Date.now() + 20_000) });
+  }
+  return doc;
 }
 
 export async function cancelFiscalDocument(id, justificativa = '') {

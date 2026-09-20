@@ -70,9 +70,31 @@ export function assertFrontendUrl() {
   }
 }
 
+export const API_PUBLIC_URL_REQUIRED_MESSAGE =
+  'API_PUBLIC_URL é obrigatório em produção. Sem isso o webhook do Mercado Pago apontaria para localhost.';
+
+export const REPLICA_SET_REQUIRED_MESSAGE =
+  'MongoDB em produção precisa de replica set. Sem isso as transações de venda/OS não são honestas. Suba com docker compose (rs0), no mesmo espírito do API_PUBLIC_URL.';
+
+export function assertPublicApiUrl() {
+  if (!isProduction()) return;
+  const url = String(process.env.API_PUBLIC_URL || '').trim().replace(/\/$/, '');
+  if (!url || url === '*' || /localhost|127\.0\.0\.1/i.test(url)) {
+    throw new Error(API_PUBLIC_URL_REQUIRED_MESSAGE);
+  }
+}
+
+export function assertReplicaSet(support) {
+  if (!isProduction()) return;
+  if (!support?.transactions) {
+    throw new Error(REPLICA_SET_REQUIRED_MESSAGE);
+  }
+}
+
 export function assertBootConfig() {
   assertJwtConfig();
   assertFrontendUrl();
+  assertPublicApiUrl();
 }
 
 export function corsOrigin() {
@@ -95,5 +117,8 @@ export function redactMongoUri(value) {
 }
 
 export function publicApiUrl() {
-  return process.env.API_PUBLIC_URL || `http://localhost:${process.env.PORT || 4000}`;
+  const url = String(process.env.API_PUBLIC_URL || '').trim().replace(/\/$/, '');
+  if (url) return url;
+  if (isProduction()) throw new Error(API_PUBLIC_URL_REQUIRED_MESSAGE);
+  return `http://localhost:${process.env.PORT || 4000}`;
 }

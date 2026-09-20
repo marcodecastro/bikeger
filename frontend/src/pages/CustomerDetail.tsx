@@ -6,6 +6,7 @@ import { OS_STATUS } from '../lib/labels';
 import { formatBRL } from '../lib/money';
 import type { CustomerHistory } from '../types';
 import { Modal } from '../components/Modal';
+import { BikeFields } from '../components/BikeFields';
 
 export function CustomerDetail() {
   const { can } = useAuth();
@@ -15,6 +16,8 @@ export function CustomerDetail() {
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [type, setType] = useState('mtb');
+
+  const [error, setError] = useState('');
 
   async function load() {
     if (!id) return;
@@ -28,9 +31,21 @@ export function CustomerDetail() {
   if (!data) return <section className="page">Carregando ficha...</section>;
 
   async function addBike() {
-    await post('/bikes', { customer: id, brand, model, type });
-    setOpen(false);
-    await load();
+    try {
+      setError('');
+      if (!brand.trim() || !model.trim()) {
+        setError('Informe marca e modelo da bike.');
+        return;
+      }
+      await post('/bikes', { customer: id, brand: brand.trim(), model: model.trim(), type });
+      setOpen(false);
+      setBrand('');
+      setModel('');
+      setType('mtb');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao cadastrar a bike');
+    }
   }
 
   return (
@@ -94,7 +109,7 @@ export function CustomerDetail() {
       </div>
 
       {can('sales') ? (
-      <article className="card" style={{ marginTop: 16 }}>
+      <article className="card table-wrap" style={{ marginTop: 16 }}>
         <h3>Compras no balcão</h3>
         <table>
           <tbody>
@@ -115,24 +130,19 @@ export function CustomerDetail() {
       {open ? (
         <Modal title="Nova bicicleta" onClose={() => setOpen(false)}>
           <div className="grid">
-            <label className="field">
-              Marca
-              <input value={brand} onChange={(event) => setBrand(event.target.value)} />
-            </label>
-            <label className="field">
-              Modelo
-              <input value={model} onChange={(event) => setModel(event.target.value)} />
-            </label>
-            <label className="field">
-              Tipo
-              <select value={type} onChange={(event) => setType(event.target.value)}>
-                <option value="mtb">MTB</option>
-                <option value="speed">Speed</option>
-                <option value="urbana">Urbana</option>
-                <option value="eletrica">Elétrica</option>
-                <option value="gravel">Gravel</option>
-              </select>
-            </label>
+            <BikeFields
+              brand={brand}
+              model={model}
+              type={type}
+              onBrand={setBrand}
+              onModel={setModel}
+              onType={setType}
+            />
+            {error ? (
+              <p className="error" role="alert" aria-live="polite">
+                {error}
+              </p>
+            ) : null}
             <button type="button" className="btn btn-primary" onClick={() => void addBike()}>
               Salvar bike
             </button>

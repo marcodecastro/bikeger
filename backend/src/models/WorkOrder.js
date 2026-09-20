@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 export const WORK_ORDER_STATUSES = [
   'aberta',
   'diagnostico',
+  'orcamento',
   'aguardando_pecas',
   'em_servico',
   'pronta',
@@ -30,7 +31,7 @@ const partItemSchema = new mongoose.Schema(
     unitCost: { type: Number, required: true },
     unitPrice: { type: Number, required: true },
     total: { type: Number, required: true },
-    stockStatus: { type: String, enum: ['reservada', 'consumida'], default: 'reservada' },
+    stockStatus: { type: String, enum: ['orcamento', 'reservada', 'consumida'], default: 'reservada' },
     stockMovement: { type: mongoose.Schema.Types.ObjectId, ref: 'StockMovement', default: null },
   },
   { _id: true },
@@ -78,6 +79,8 @@ const workOrderSchema = new mongoose.Schema(
       default: 'servico',
     },
     readyNotifiedAt: { type: Date, default: null },
+    partsWaitingSince: { type: Date, default: null, index: true },
+    partsStaleNotifiedAt: { type: Date, default: null },
   },
   { timestamps: true },
 );

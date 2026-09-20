@@ -8,7 +8,11 @@ import { httpError } from '../utils/asyncHandler.js';
 import { runInTransaction } from '../utils/transaction.js';
 import { applyStockMovement } from './stockService.js';
 import { registerLedgerMovement, requireOpenRegister, reverseLedgerForReference } from './cashService.js';
-import { cancelAuthorizedFor, enqueueFiscalDocument } from './fiscalService.js';
+import { initialSalePaymentStatus } from '../utils/paymentMethods.js';
+import { enqueueJob } from '../utils/jobs.js';
+import { logError } from '../utils/logger.js';
+
+export const SALE_PAYMENT_EXCEEDS_TOTAL_MESSAGE = 'Pagamento maior que o total';
 
 export function recalcSaleTotals(sale) {
   const subtotal = sale.items.reduce((sum, item) => addCents(sum, item.total), 0);
@@ -42,18 +46,13 @@ export async function createSale(payload) {
     ),
   );
   if (sale.status === 'paga') {
-    await enqueueFiscalDocument({ relatedType: 'sale', relatedId: sale._id }).catch((error) => {
-      console.error('NFC-e pendente:', error.message);
-    });
+    enqueueJob('nfce.enqueue', { relatedType: 'sale', relatedId: String(sale._id) });
   }
   return Sale.findById(sale._id).populate('customer');
 }
 
 async function persistSale(payload, session) {
-  const hasApprovedPayment = (payload.payments || []).some(
-    (payment) => (payment.status || 'aprovado') === 'aprovado',
-  );
-  if (hasApprovedPayment) await requireOpenRegister(session);
+  await requireOpenRegister(session);
 
   const sale = new Sale({
     number: await nextNumber('sale', 'VD', 5, session),
@@ -116,13 +115,14 @@ async function persistSale(payload, session) {
       sale.payments.push({
         method: payment.method,
         amount: payment.amount,
-        status: payment.status || 'aprovado',
+        status: initialSalePaymentStatus(payment.method),
         mercadoPagoId: payment.mercadoPagoId || '',
         notes: payment.notes || '',
       });
     }
 
     recalcSaleTotals(sale);
+    if (sale.paidAmount > sale.total) throw httpError(400, SALE_PAYMENT_EXCEEDS_TOTAL_MESSAGE);
 
     if (sale.cashReceived > 0) {
       sale.change = Math.max(0, subtractCents(sale.cashReceived, sale.total));
@@ -154,7 +154,9 @@ async function persistSale(payload, session) {
   try {
     return await finish();
   } catch (error) {
-    await compensateStandaloneSale(sale, payload.operator, error.message).catch(() => undefined);
+    await compensateStandaloneSale(sale, payload.operator, error.message).catch((compensateError) => {
+      logError(compensateError, null, { saleId: String(sale._id), phase: 'sale.compensate' });
+    });
     throw error;
   }
 }
@@ -232,8 +234,10 @@ export async function cancelSale(saleId, { operator = 'sistema', notes = '', sil
   });
 
   if (sale && !silent) {
-    await cancelAuthorizedFor('sale', sale._id, notes || 'Cancelamento da venda no BikeGer.').catch((error) => {
-      console.error('Cancelamento NFC-e:', error.message);
+    enqueueJob('nfce.cancel', {
+      relatedType: 'sale',
+      relatedId: String(sale._id),
+      reason: notes || 'Cancelamento da venda no BikeGer.',
     });
   }
 
@@ -324,8 +328,10 @@ export async function returnSale(saleId, { items = [], reason = '', method, oper
   });
 
   if (sale.fullyReturned) {
-    await cancelAuthorizedFor('sale', sale.sale._id, reason).catch((error) => {
-      console.error('Cancelamento NFC-e na devolução:', error.message);
+    enqueueJob('nfce.cancel-return', {
+      relatedType: 'sale',
+      relatedId: String(sale.sale._id),
+      reason,
     });
   }
 

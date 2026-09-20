@@ -11,14 +11,16 @@ import { Counter } from '../src/models/Counter.js';
 import {
   CASH_CLOSED_MESSAGE,
   closeRegister,
+  MANUAL_CASH_ONLY_MESSAGE,
   openRegister,
   registerLedgerMovement,
   registerCashMovement,
   reverseLedgerForReference,
 } from '../src/services/cashService.js';
 import { createSale } from '../src/services/saleService.js';
-import { addPartToWorkOrder, addPaymentToWorkOrder, cancelWorkOrder, createWorkOrder } from '../src/services/workOrderService.js';
+import { addPartToWorkOrder, addPaymentToWorkOrder, addServiceToWorkOrder, cancelWorkOrder, createWorkOrder } from '../src/services/workOrderService.js';
 import { applyApprovedPayment } from '../src/services/mercadoPagoService.js';
+import { flushJobs } from '../src/utils/jobs.js';
 
 const uri = process.env.MONGODB_TEST_URI_C3 || 'mongodb://127.0.0.1:27017/bikeger_test_c3';
 
@@ -36,6 +38,7 @@ before(async () => {
 });
 
 after(async () => {
+  await flushJobs();
   await mongoose.disconnect();
 });
 
@@ -183,6 +186,15 @@ test('sangria e estorno também exigem caixa aberto', async () => {
   );
 });
 
+test('movimento manual recusa type venda', async () => {
+  await closeCash();
+  await openRegister({ openingAmount: 0, operator: 'teste' });
+  await assert.rejects(
+    () => registerCashMovement({ type: 'venda', amount: 5000, method: 'dinheiro' }),
+    (error) => error.status === 400 && error.message === MANUAL_CASH_ONLY_MESSAGE,
+  );
+});
+
 test('depois de fechar o caixa, nova venda volta a ser recusada', async () => {
   await closeCash();
   await openRegister({ openingAmount: 0, operator: 'teste' });
@@ -198,6 +210,22 @@ test('depois de fechar o caixa, nova venda volta a ser recusada', async () => {
     /nenhum caixa aberto/i,
   );
   assert.equal((await Product.findById(product._id)).currentStock, 10);
+});
+
+test('PIX na venda fica pendente e não entra no livro até o webhook', async () => {
+  await closeCash();
+  await openRegister({ openingAmount: 0, operator: 'teste' });
+  const product = await makeProduct();
+  const sale = await createSale({
+    items: [{ product: product._id, quantity: 1 }],
+    payments: [{ method: 'pix', amount: 2000, status: 'aprovado' }],
+    operator: 'teste',
+  });
+  assert.equal(sale.status, 'aberta');
+  assert.equal(sale.paidAmount, 0);
+  assert.equal(sale.payments[0].status, 'pendente');
+  const register = await CashRegister.findOne({ status: 'aberto' });
+  assert.equal(register.movements.filter((movement) => String(movement.referenceId) === String(sale._id)).length, 0);
 });
 
 test('OS paga não cancela com caixa fechado: status, pagamento e estoque ficam', async () => {
@@ -228,5 +256,31 @@ test('OS paga não cancela com caixa fechado: status, pagamento e estoque ficam'
   assert.equal(after.paidAmount, 4000);
   assert.equal((await Product.findById(product._id)).reservedStock, 2);
   assert.equal((await Product.findById(product._id)).currentStock, 10);
+});
+
+test('OS recusa pagamento acima do total', async () => {
+  await closeCash();
+  await openRegister({ openingAmount: 0, operator: 'teste' });
+  const customer = await Customer.create({ name: 'C3 overpay', phone: '11' });
+  const bike = await Bike.create({
+    customer: customer._id,
+    brand: 'Caloi',
+    model: '10',
+    type: 'urbana',
+  });
+  const created = await createWorkOrder({
+    customer: customer._id,
+    bike: bike._id,
+    complaint: 'over',
+  });
+  await addServiceToWorkOrder(created._id, { name: 'Regulagem', price: 1000, quantity: 1 });
+  await addPaymentToWorkOrder(created._id, { method: 'dinheiro', amount: 1000 });
+  await assert.rejects(
+    () => addPaymentToWorkOrder(created._id, { method: 'dinheiro', amount: 1 }),
+    /maior que o valor em aberto/i,
+  );
+  const after = await WorkOrder.findById(created._id);
+  assert.equal(after.paidAmount, 1000);
+  assert.equal(after.payments.length, 1);
 });
 

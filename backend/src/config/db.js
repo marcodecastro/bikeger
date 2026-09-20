@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { redactMongoUri } from '../utils/security.js';
+import { redactMongoUri, assertReplicaSet } from '../utils/security.js';
 import { refreshTransactionSupport } from '../utils/transaction.js';
 
 export async function connectDb() {
@@ -7,6 +7,7 @@ export async function connectDb() {
   mongoose.set('strictQuery', true);
   await mongoose.connect(uri);
   const support = await refreshTransactionSupport();
+  assertReplicaSet(support);
   console.log(
     'MongoDB conectado:',
     redactMongoUri(uri),

@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 const settingsSchema = new mongoose.Schema(
   {
     storeName: { type: String, default: 'BikeGer' },
+    storeLogo: { type: String, default: '' },
     storePhone: { type: String, default: '' },
     storeAddress: { type: String, default: '' },
     storeCnpj: { type: String, default: '' },
@@ -35,6 +36,19 @@ const settingsSchema = new mongoose.Schema(
       type: String,
       default: '{nome}, a {bike} da OS {os} está pronta para retirada na {loja}.',
     },
+    openedNoticeTemplate: {
+      type: String,
+      default: '{nome}, a {bike} entrou na oficina ({os}) na {loja}.',
+    },
+    paidNoticeTemplate: {
+      type: String,
+      default: '{nome}, a {bike} da OS {os} já está paga e pode retirar na {loja}.',
+    },
+    quoteNoticeTemplate: {
+      type: String,
+      default: '{nome}, o orçamento da {bike} na OS {os} ficou em {valor}. Pode fazer? {loja}',
+    },
+    waitingPartsDays: { type: Number, default: 3 },
     whatsappToken: { type: String, default: '' },
     whatsappPhoneNumberId: { type: String, default: '' },
   },

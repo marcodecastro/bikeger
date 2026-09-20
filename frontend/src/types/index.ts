@@ -147,7 +147,7 @@ export interface WorkOrderPart {
   unitCost?: number;
   unitPrice: number;
   total: number;
-  stockStatus?: 'reservada' | 'consumida';
+  stockStatus?: 'orcamento' | 'reservada' | 'consumida';
 }
 
 export interface WorkOrderService {
@@ -183,14 +183,41 @@ export interface WorkOrder {
   scheduledAt?: string | null;
   scheduleKind?: 'diagnostico' | 'servico' | 'retirada';
   readyNotifiedAt?: string | null;
+  partsWaitingSince?: string | null;
 }
 
 export interface CashMovement {
+  _id?: string;
+  registerId?: string;
   type: string;
   method?: string;
   amount: number;
   notes: string;
   createdAt: string;
+  operator?: string;
+}
+
+export interface DayReport {
+  registerId: string;
+  openedAt: string;
+  closedAt?: string | null;
+  operator: string;
+  openingAmount: number;
+  countedCash: number;
+  expectedCash: number;
+  difference: number;
+  byMethod: Record<string, number>;
+  receivedTotal: number;
+  sangria: number;
+  suprimento: number;
+  osTotal: number;
+  osCount: number;
+  estorno: number;
+  fiscalEnabled: boolean;
+  nfcePending: number;
+  notes?: string;
+  receipt?: Receipt;
+  dayReport?: Receipt;
 }
 
 export interface CashSummary {
@@ -212,10 +239,13 @@ export interface CashRegister {
   movements: CashMovement[];
   operator: string;
   summary?: CashSummary;
+  dayReport?: Receipt;
+  day?: DayReport;
 }
 
 export interface Settings {
   storeName: string;
+  storeLogo?: string;
   storePhone: string;
   storeAddress: string;
   storeCnpj: string;
@@ -248,10 +278,15 @@ export interface Settings {
   defaultIcmsCst?: string;
   hasCsc?: boolean;
   readyNoticeTemplate?: string;
+  openedNoticeTemplate?: string;
+  paidNoticeTemplate?: string;
+  quoteNoticeTemplate?: string;
+  waitingPartsDays?: number;
   whatsappToken?: string;
   whatsappPhoneNumberId?: string;
   hasWhatsAppCloud?: boolean;
   whatsappFromEnv?: boolean;
+  secretsFromEnv?: boolean;
 }
 
 export interface FiscalDocument {
@@ -280,6 +315,7 @@ export interface Receipt {
     phone: string;
     address: string;
     cnpj: string;
+    logo?: string;
   };
 }
 
@@ -293,6 +329,7 @@ export interface CategoryMargin {
 
 export interface ReadyNotice {
   _id: string;
+  kind?: 'os_pronta' | 'os_aberta' | 'os_paga' | 'os_orcamento';
   status: string;
   message: string;
   waUrl?: string;
@@ -321,6 +358,7 @@ export interface DashboardData {
   customers: number;
   lowStock: Product[];
   openOrders: WorkOrder[];
+  openOrderCount?: number;
   workshop: Record<string, number>;
   register: CashRegister | null;
   recentSales: Sale[];
@@ -328,6 +366,9 @@ export interface DashboardData {
   marginByCategory?: CategoryMargin[];
   monthMarginByCategory?: CategoryMargin[];
   pendingNotices?: ReadyNotice[];
+  pendingApplyCount?: number;
+  waitingParts?: WorkOrder[];
+  waitingPartsDays?: number;
 }
 
 export interface SearchResults {
@@ -336,6 +377,93 @@ export interface SearchResults {
   orders: WorkOrder[];
   sales: Sale[];
   bikes: Bike[];
+}
+
+export interface PurchaseItem {
+  _id?: string;
+  product: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  unitCost?: number;
+  total: number;
+}
+
+export interface Purchase {
+  _id: string;
+  number: string;
+  supplier: Supplier | string;
+  status: string;
+  notes: string;
+  items: PurchaseItem[];
+  itemsTotal: number;
+  operator?: string;
+  receivedAt?: string;
+  createdAt: string;
+}
+
+export interface InventoryItem {
+  _id?: string;
+  product: string;
+  sku: string;
+  name: string;
+  barcode?: string;
+  systemQty: number;
+  countedQty: number;
+}
+
+export interface InventoryCount {
+  _id: string;
+  number: string;
+  status: 'aberta' | 'aplicada' | 'cancelada';
+  notes?: string;
+  items: InventoryItem[];
+  operator?: string;
+  appliedAt?: string | null;
+  createdAt: string;
+}
+
+export interface MonthReport {
+  year: number;
+  month: number;
+  from: string;
+  to: string;
+  sales: { count: number; revenue: number; cost: number; margin: number };
+  workshop: {
+    opened: number;
+    delivered: number;
+    revenue: number;
+    openNow: number;
+    byStatus: Record<string, number>;
+  };
+  stock: { skuCount: number; units: number; value: number; outQty: number; giro: number };
+  purchases: { count: number; total: number };
+}
+
+export interface ShelfLabel {
+  kind: string;
+  width: number;
+  height: number;
+  text: string;
+  escposBase64: string;
+  labels: {
+    productId: string;
+    sku: string;
+    name: string;
+    barcode: string;
+    price: number;
+    text: string;
+  }[];
+  store: Receipt['store'];
+}
+
+export interface AuditEvent {
+  _id: string;
+  action: string;
+  actorLogin: string;
+  targetLogin?: string;
+  meta?: Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface MpPixPayment {

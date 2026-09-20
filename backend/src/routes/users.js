@@ -26,7 +26,7 @@ usersRouter.post(
 usersRouter.patch(
   '/:id',
   asyncHandler(async (req, res) => {
-    const user = await updateUser(req.params.id, req.body);
+    const user = await updateUser(req.params.id, req.body, { actor: req.user });
     res.json(publicUser(user));
   }),
 );

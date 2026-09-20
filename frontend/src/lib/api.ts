@@ -2,6 +2,23 @@ const API = '/api';
 
 export const REQUEST_TIMEOUT_MS = 60_000;
 export const REQUEST_TIMEOUT_MESSAGE = 'A requisição demorou demais. Tente de novo.';
+export const OS_CONFLICT_RE = /mudou em outra tela/i;
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+export function isRetryableConflict(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const status = error instanceof ApiError ? error.status : 0;
+  return status === 409 && OS_CONFLICT_RE.test(error.message);
+}
 
 function authHeader(): Record<string, string> {
   const token = localStorage.getItem('bikeger.token');
@@ -51,7 +68,7 @@ export async function request<T>(path: string, options?: RequestOptions): Promis
   const data = (await res.json().catch(() => ({}))) as { message?: string } & T;
 
   if (!res.ok) {
-    throw new Error(data.message || 'Erro na requisição');
+    throw new ApiError(data.message || 'Erro na requisição', res.status);
   }
 
   return data;

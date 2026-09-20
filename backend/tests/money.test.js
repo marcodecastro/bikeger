@@ -9,6 +9,7 @@ import {
   subtractCents,
   centsToMpAmount,
   mpAmountToCents,
+  weightedAverageCost,
 } from '../src/utils/money.js';
 
 test('0.1 + 0.2 em centavos dá 30', () => {
@@ -37,4 +38,10 @@ test('borda Mercado Pago ida e volta', () => {
   assert.equal(centsToMpAmount(24990), 249.9);
   assert.equal(mpAmountToCents(249.9), 24990);
   assert.equal(mpAmountToCents(centsToMpAmount(11970)), 11970);
+});
+
+test('custo médio da compra em centavos', () => {
+  assert.equal(weightedAverageCost(0, 0, 10, 1500), 1500);
+  assert.equal(weightedAverageCost(10, 1000, 10, 2000), 1500);
+  assert.equal(weightedAverageCost(1, 1000, 1, 1001), 1001);
 });

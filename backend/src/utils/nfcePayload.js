@@ -29,7 +29,10 @@ export function paymentCode(method) {
 }
 
 export function focusNfeToken(settings) {
-  return String(process.env.FOCUS_NFE_TOKEN || settings?.focusNfeToken || '').trim();
+  const fromEnv = String(process.env.FOCUS_NFE_TOKEN || '').trim();
+  if (fromEnv) return fromEnv;
+  if (process.env.NODE_ENV === 'production') return '';
+  return String(settings?.focusNfeToken || '').trim();
 }
 
 export function fiscalReadiness(settings) {

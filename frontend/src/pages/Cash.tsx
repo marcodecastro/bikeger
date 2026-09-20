@@ -3,27 +3,32 @@ import { get, post } from '../lib/api';
 import { PAYMENT_METHODS } from '../lib/labels';
 import { formatBRL } from '../lib/money';
 import { useBusy } from '../lib/useBusy';
-import type { CashRegister } from '../types';
+import type { CashMovement, CashRegister, DayReport, Receipt } from '../types';
 import { MoneyInput } from '../components/MoneyInput';
+import { ReceiptModal } from '../components/ReceiptModal';
 
 export function Cash() {
   const [current, setCurrent] = useState<CashRegister | null>(null);
   const [history, setHistory] = useState<CashRegister[]>([]);
+  const [movements, setMovements] = useState<CashMovement[]>([]);
   const [opening, setOpening] = useState(0);
   const [counted, setCounted] = useState(0);
   const [movementType, setMovementType] = useState('sangria');
   const [movementAmount, setMovementAmount] = useState(0);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
+  const [receipt, setReceipt] = useState<Receipt | null>(null);
   const { busy, run } = useBusy();
 
   async function load() {
-    const [open, list] = await Promise.all([
+    const [open, list, ledger] = await Promise.all([
       get<CashRegister | null>('/cash/current'),
       get<CashRegister[]>('/cash'),
+      get<CashMovement[]>('/cash/movements?limit=80'),
     ]);
     setCurrent(open);
     setHistory(list);
+    setMovements(ledger);
   }
 
   useEffect(() => {
@@ -62,12 +67,18 @@ export function Cash() {
     await run(async () => {
       try {
         setError('');
-        await post('/cash/close', { countedCash: counted });
+        const closed = await post<CashRegister>('/cash/close', { countedCash: counted });
+        if (closed.dayReport) setReceipt(closed.dayReport);
         await load();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Falha ao fechar o caixa');
       }
     });
+  }
+
+  async function printDayReport(id: string) {
+    const report = await get<DayReport & { receipt: Receipt }>(`/cash/${id}/day-report`);
+    setReceipt(report.receipt);
   }
 
   return (
@@ -151,7 +162,7 @@ export function Cash() {
         </div>
       )}
 
-      <article className="card" style={{ marginTop: 16 }}>
+      <article className="card table-wrap" style={{ marginTop: 16 }}>
         <h3>Histórico</h3>
         <table>
           <thead>
@@ -162,6 +173,7 @@ export function Cash() {
               <th>PIX</th>
               <th>Cartão</th>
               <th>Diferença</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -173,11 +185,46 @@ export function Cash() {
                 <td>PIX {formatBRL(register.summary?.byMethod?.pix || 0)}</td>
                 <td>cartão {formatBRL((register.summary?.byMethod?.cartao_credito || 0) + (register.summary?.byMethod?.cartao_debito || 0))}</td>
                 <td className="money">{formatBRL(register.difference)}</td>
+                <td>
+                  {register.status === 'fechado' ? (
+                    <button type="button" className="btn btn-ghost" onClick={() => void printDayReport(register._id)}>
+                      Relatório
+                    </button>
+                  ) : null}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </article>
+
+      <article className="card table-wrap" style={{ marginTop: 16 }}>
+        <h3>Movimentos</h3>
+        <p className="muted">Livro consultável: PIX da semana, sangria do mês — não só o array do caixa aberto.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Quando</th>
+              <th>Tipo</th>
+              <th>Meio</th>
+              <th>Valor</th>
+              <th>Nota</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(movements || []).map((movement) => (
+              <tr key={movement._id}>
+                <td>{new Date(movement.createdAt).toLocaleString('pt-BR')}</td>
+                <td>{movement.type}</td>
+                <td>{PAYMENT_METHODS[movement.method || ''] || movement.method || '—'}</td>
+                <td className="money">{formatBRL(movement.amount)}</td>
+                <td className="muted">{movement.notes}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </article>
+      {receipt ? <ReceiptModal title="Relatório do dia" receipt={receipt} onClose={() => setReceipt(null)} /> : null}
     </section>
   );
 }

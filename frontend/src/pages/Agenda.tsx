@@ -71,7 +71,7 @@ export function Agenda() {
 
       {notices.length ? (
         <article className="card" style={{ marginBottom: 16 }}>
-          <h3>Avisar cliente — OS pronta</h3>
+          <h3>Avisar cliente — WhatsApp</h3>
           {notices.map((notice) => (
             <div className="stack-item stack-item-static" key={notice._id}>
               <div>

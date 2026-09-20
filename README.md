@@ -22,6 +22,12 @@ Toda alteração passa pelo kardex:
 
 O campo `currentStock` do produto **não é editado direto** na ficha. Ele muda só por operação.
 
+## Subir frontend e backend no GitHub
+
+Frontend e backend vão no **mesmo** repositório. Não pode haver `.git` dentro de `frontend/` nem de `backend/` — isso deixa a pasta vazia no GitHub.
+
+Passo a passo: [docs/subir-frontend-e-backend.md](docs/subir-frontend-e-backend.md)
+
 ## Subir o projeto
 
 ```bash
@@ -32,6 +38,23 @@ cd frontend && npm install && npm run dev
 
 API: `http://localhost:4000`  
 App: `http://localhost:5174`
+
+O Mongo no compose escuta só em `127.0.0.1:27017`. Em qualquer máquina que não seja o notebook da loja, **apague o bloco `ports`** do `docker-compose.yml` — o banco não deve ficar na internet.
+
+Copie `backend/.env.example` para `backend/.env`. Em produção estes valores são obrigatórios:
+
+| Variável | Para que serve |
+|---|---|
+| `JWT_SECRET` | Assina o login. Sem chave forte o servidor recusa subir. |
+| `FRONTEND_URL` | Origem do painel (CORS e retorno do Mercado Pago). |
+| `API_PUBLIC_URL` | URL pública da API. Sem isso o webhook PIX aponta para localhost. |
+| Mongo replica set | Em produção a API **recusa subir** se o Mongo for standalone. Use `docker compose up -d` (`rs0`). |
+| `MP_WEBHOOK_SECRET` | HMAC das notificações do Mercado Pago. |
+| `FOCUS_NFE_TOKEN` | Emissão NFC-e (opcional). Em produção o token não é gravado nos Ajustes. |
+
+Backup diário (`mongodump`, 14 dias) e restore de teste: [docs/backup.md](docs/backup.md). NFC-e é opcional — deixe desligada em Ajustes se a loja não emite.
+
+Também use `MP_ACCESS_TOKEN` (e `WHATSAPP_TOKEN`, se for a Cloud API) no `.env` de produção.
 
 ## Login
 

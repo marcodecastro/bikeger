@@ -1,38 +1,81 @@
 import { Notification } from '../models/Notification.js';
 import { WorkOrder } from '../models/WorkOrder.js';
+import { formatBRL } from '../utils/money.js';
 import { getSettings } from '../models/Settings.js';
 import { httpError } from '../utils/asyncHandler.js';
-import { buildReadyMessage, whatsappUrl } from '../utils/notify.js';
+import {
+  buildOsNoticeMessage,
+  DEFAULT_OS_NOTICE_TEMPLATES,
+  whatsappUrl,
+} from '../utils/notify.js';
 import { sendWhatsAppCloud, whatsappCloudConfig } from '../utils/whatsappCloud.js';
+import { isWorkOrderQuoteStatus } from '../utils/workOrderStatus.js';
 
-export async function enqueueReadyNotice(orderId, { send = sendWhatsAppCloud } = {}) {
+const TEMPLATE_FIELDS = {
+  os_pronta: 'readyNoticeTemplate',
+  os_aberta: 'openedNoticeTemplate',
+  os_paga: 'paidNoticeTemplate',
+  os_orcamento: 'quoteNoticeTemplate',
+};
+
+export async function enqueueReadyNotice(orderId, options) {
+  return enqueueOsNotice(orderId, 'os_pronta', options);
+}
+
+export async function enqueueOpenedNotice(orderId, options) {
+  return enqueueOsNotice(orderId, 'os_aberta', options);
+}
+
+export async function enqueuePaidNotice(orderId, options) {
+  return enqueueOsNotice(orderId, 'os_paga', options);
+}
+
+export async function enqueueQuoteNotice(orderId, options) {
+  const order = await WorkOrder.findById(orderId);
+  if (!order) throw httpError(404, 'OS não encontrada');
+  if (order.status === 'aberta' || isWorkOrderQuoteStatus(order.status)) {
+    if (order.status !== 'orcamento') {
+      const { updateWorkOrder } = await import('./workOrderService.js');
+      await updateWorkOrder(orderId, { status: 'orcamento' });
+    }
+  }
+  return enqueueOsNotice(orderId, 'os_orcamento', { ...options, allowRepeat: true });
+}
+
+export async function enqueueOsNotice(orderId, kind, { send = sendWhatsAppCloud, allowRepeat = false } = {}) {
+  if (!TEMPLATE_FIELDS[kind]) throw httpError(400, 'Tipo de aviso inválido');
+
   const order = await WorkOrder.findById(orderId).populate('customer').populate('bike');
   if (!order) throw httpError(404, 'OS não encontrada');
 
-  const existing = await Notification.findOne({
-    kind: 'os_pronta',
-    workOrder: order._id,
-    status: { $in: ['pendente', 'enviado'] },
-  }).sort({ createdAt: -1 });
-  if (existing && existing.status === 'enviado') return existing;
-  if (existing && existing.status === 'pendente') {
-    return deliverNotice(existing, { send });
+  if (!allowRepeat) {
+    const existing = await Notification.findOne({
+      kind,
+      workOrder: order._id,
+      status: { $in: ['pendente', 'enviado'] },
+    }).sort({ createdAt: -1 });
+    if (existing && existing.status === 'enviado') return existing;
+    if (existing && existing.status === 'pendente') {
+      return deliverNotice(existing, { send });
+    }
   }
 
   const settings = await getSettings();
   const bikeLabel = order.bike ? `${order.bike.brand} ${order.bike.model}`.trim() : 'bike';
-  const message = buildReadyMessage({
-    template: settings.readyNoticeTemplate,
+  const message = buildOsNoticeMessage({
+    template: settings[TEMPLATE_FIELDS[kind]],
+    fallback: DEFAULT_OS_NOTICE_TEMPLATES[kind],
     storeName: settings.storeName,
     customerName: order.customer?.name,
     bikeLabel,
     number: order.number,
+    amountLabel: formatBRL(order.total || 0),
   });
   const phone = order.customer?.phone || '';
   const waUrl = whatsappUrl(phone, message);
 
   const notice = await Notification.create({
-    kind: 'os_pronta',
+    kind,
     workOrder: order._id,
     customer: order.customer?._id || null,
     message,
@@ -63,7 +106,9 @@ async function deliverNotice(notice, { send, settings } = {}) {
     notice.status = 'enviado';
     notice.sentAt = new Date();
     await notice.save();
-    await WorkOrder.findByIdAndUpdate(notice.workOrder, { readyNotifiedAt: notice.sentAt });
+    if (notice.kind === 'os_pronta') {
+      await WorkOrder.findByIdAndUpdate(notice.workOrder, { readyNotifiedAt: notice.sentAt });
+    }
   } catch (error) {
     notice.provider = 'wa.me';
     notice.errorMessage = error.message || 'Falha na API do WhatsApp';
@@ -91,6 +136,8 @@ export async function markNoticeSent(id) {
   if (!notice.provider) notice.provider = 'wa.me';
   await notice.save();
 
-  await WorkOrder.findByIdAndUpdate(notice.workOrder, { readyNotifiedAt: notice.sentAt });
+  if (notice.kind === 'os_pronta') {
+    await WorkOrder.findByIdAndUpdate(notice.workOrder, { readyNotifiedAt: notice.sentAt });
+  }
   return notice;
 }

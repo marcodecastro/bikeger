@@ -3,6 +3,7 @@ import { User } from '../models/User.js';
 import { ROLES } from '../utils/roles.js';
 import { httpError } from '../utils/asyncHandler.js';
 import { shouldSeedDemoUsers } from '../utils/security.js';
+import { recordAudit } from './auditService.js';
 
 const SALT_ROUNDS = 10;
 export const MIN_PASSWORD_LENGTH = 8;
@@ -73,7 +74,7 @@ export async function createUser({ name, login, password, role }) {
   });
 }
 
-export async function updateUser(id, patch) {
+export async function updateUser(id, patch, { actor } = {}) {
   const user = await User.findById(id);
   if (!user) throw httpError(404, 'Usuário não encontrado');
 
@@ -93,7 +94,14 @@ export async function updateUser(id, patch) {
     }
     user.active = patch.active;
   }
-  if (patch.password) user.passwordHash = await hashPassword(patch.password);
+  if (patch.password) {
+    user.passwordHash = await hashPassword(patch.password);
+    await recordAudit({
+      action: 'user.password_changed',
+      actor,
+      target: user,
+    });
+  }
 
   await user.save();
   return user;

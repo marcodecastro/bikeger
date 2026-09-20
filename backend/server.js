@@ -5,9 +5,11 @@ import { connectDb } from './src/config/db.js';
 import { router } from './src/routes/index.js';
 import { errorHandler } from './src/middleware/errorHandler.js';
 import { securityHeaders } from './src/middleware/securityHeaders.js';
+import { requestIdMiddleware } from './src/utils/logger.js';
 import { ensureDefaultUsers } from './src/services/userService.js';
 import { assertBootConfig, corsOrigin, redactMongoUri } from './src/utils/security.js';
 import { transactionSupport } from './src/utils/transaction.js';
+import { startJobWorker } from './src/utils/jobs.js';
 
 assertBootConfig();
 
@@ -15,6 +17,7 @@ const app = express();
 const PORT = Number(process.env.PORT) || 4000;
 
 app.use(securityHeaders());
+app.use(requestIdMiddleware);
 app.use(cors({ origin: corsOrigin() }));
 app.use(express.json({ limit: '5mb' }));
 
@@ -33,6 +36,7 @@ app.use(errorHandler);
 connectDb()
   .then(async () => {
     await ensureDefaultUsers();
+    startJobWorker();
     app.listen(PORT, () => {
       console.log(`BikeGer API em http://localhost:${PORT} (${process.env.NODE_ENV || 'development'})`);
     });

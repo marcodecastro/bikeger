@@ -18,6 +18,7 @@ describe('Caixa', () => {
     get.mockImplementation(async (path: string) => {
       if (path === '/cash/current') return null;
       if (path === '/cash') return [];
+      if (String(path).startsWith('/cash/movements')) return [];
       return null;
     });
   });

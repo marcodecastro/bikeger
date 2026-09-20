@@ -10,6 +10,9 @@ import { marginByCategory } from '../services/marginService.js';
 import { listNotices } from '../services/notifyService.js';
 import { hideCostIfNeeded } from '../utils/hideCost.js';
 import { todaySalesKpi } from '../utils/todaySalesKpi.js';
+import { listStaleWaitingParts, workshopStatusCounts } from '../services/workOrderService.js';
+import { countOpenPaymentApplyFailures } from '../services/paymentOutbox.js';
+import { getSettings } from '../models/Settings.js';
 
 export const dashboardRouter = Router();
 
@@ -21,7 +24,7 @@ dashboardRouter.get(
 
     const monthStart = new Date(start.getFullYear(), start.getMonth(), 1);
 
-    const [todayKpi, openOrders, lowStock, customers, register, recentSales, recentOrders, todayMargin, monthMargin, pendingNotices] =
+    const [todayKpi, openOrders, workshopCounts, lowStock, customers, register, recentSales, recentOrders, todayMargin, monthMargin, pendingNotices, pendingApplyCount, settings] =
       await Promise.all([
         todaySalesKpi(start),
         WorkOrder.find({ status: { $nin: ['entregue', 'cancelada'] } })
@@ -29,6 +32,7 @@ dashboardRouter.get(
           .populate('bike')
           .sort({ createdAt: -1 })
           .limit(12),
+        workshopStatusCounts(),
         Product.find({
           active: true,
           $expr: { $lte: ['$currentStock', '$minStock'] },
@@ -42,18 +46,11 @@ dashboardRouter.get(
         marginByCategory({ from: start }),
         marginByCategory({ from: monthStart }),
         listNotices({ status: 'pendente' }),
+        countOpenPaymentApplyFailures(),
+        getSettings(),
       ]);
 
-    const statusCount = {
-      aberta: 0,
-      diagnostico: 0,
-      aguardando_pecas: 0,
-      em_servico: 0,
-      pronta: 0,
-    };
-    for (const order of openOrders) {
-      if (statusCount[order.status] !== undefined) statusCount[order.status] += 1;
-    }
+    const waitingParts = await listStaleWaitingParts(settings.waitingPartsDays || 3);
 
     const isMechanic = req.user?.role === 'mecanico';
 
@@ -70,13 +67,17 @@ dashboardRouter.get(
           customers,
           lowStock,
           openOrders,
-          workshop: statusCount,
+          openOrderCount: workshopCounts.openOrderCount,
+          workshop: workshopCounts.statusCount,
           register: isMechanic ? null : register,
           recentSales: isMechanic ? [] : recentSales,
           recentOrders,
           marginByCategory: isMechanic ? [] : todayMargin,
           monthMarginByCategory: isMechanic ? [] : monthMargin,
           pendingNotices,
+          pendingApplyCount: isMechanic ? 0 : pendingApplyCount,
+          waitingParts,
+          waitingPartsDays: settings.waitingPartsDays || 3,
         },
         req.user,
       ),

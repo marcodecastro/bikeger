@@ -5,7 +5,8 @@ import { FiscalDocument } from '../src/models/FiscalDocument.js';
 import { Sale } from '../src/models/Sale.js';
 import { Settings } from '../src/models/Settings.js';
 import '../src/models/Customer.js';
-import { emitFiscalDocument, enqueueFiscalDocument } from '../src/services/fiscalService.js';
+import { emitFiscalDocument, enqueueFiscalDocument, pollFiscalDocument } from '../src/services/fiscalService.js';
+import { flushJobs } from '../src/utils/jobs.js';
 
 const uri = process.env.MONGODB_TEST_URI_A4 || 'mongodb://127.0.0.1:27017/bikeger_test_a4';
 
@@ -36,6 +37,7 @@ before(async () => {
 });
 
 after(async () => {
+  await flushJobs();
   await mongoose.disconnect();
 });
 
@@ -169,4 +171,47 @@ test('emit concorrente manda uma vez só à SEFAZ', async () => {
     process.env.FOCUS_NFE_TOKEN = previous;
     await Settings.deleteMany({});
   }
+});
+
+test('poll da Focus autoriza NFC-e que ficou processando', async () => {
+  const previous = process.env.FOCUS_NFE_TOKEN;
+  process.env.FOCUS_NFE_TOKEN = 'token-teste-poll';
+  try {
+    await Settings.deleteMany({});
+    await Settings.create({ ...EMITENTE, fiscalEnabled: true, focusNfeToken: 'token-teste-poll' });
+    const sale = await makeSale();
+    const doc = await FiscalDocument.create({
+      relatedType: 'sale',
+      relatedId: sale._id,
+      status: 'processando',
+      amount: 2000,
+      provider: 'focusnfe',
+    });
+    const updated = await pollFiscalDocument(doc._id, {
+      consultFocus: async () => ({
+        ok: true,
+        status: 200,
+        body: { status: 'autorizado', chave_nfe: 'NFe-POLL', numero: '88' },
+      }),
+    });
+    assert.equal(updated.status, 'autorizada');
+    assert.equal(updated.accessKey, 'NFe-POLL');
+  } finally {
+    process.env.FOCUS_NFE_TOKEN = previous;
+    await Settings.deleteMany({});
+  }
+});
+
+test('poll da NFC-e não consulta Focus se a loja desligou a nota', async () => {
+  await Settings.deleteMany({});
+  await Settings.create({ fiscalEnabled: false });
+  let called = false;
+  const result = await pollFiscalDocument(oid(), {
+    consultFocus: async () => {
+      called = true;
+      return { ok: true, status: 200, body: {} };
+    },
+  });
+  assert.equal(result, null);
+  assert.equal(called, false);
 });

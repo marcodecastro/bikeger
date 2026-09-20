@@ -34,9 +34,45 @@ describe('Login', () => {
       </MemoryRouter>,
     );
 
+    await user.type(screen.getByLabelText('Login'), 'dono');
     await user.type(screen.getByLabelText('Senha'), 'errada');
     await user.click(screen.getByRole('button', { name: 'Entrar' }));
 
     expect(await screen.findByText(/muitas tentativas de login/i)).toBeInTheDocument();
+  });
+
+  it('não sugere perfis nem senha de demo fora do ambiente de desenvolvimento', async () => {
+    render(
+      <MemoryRouter>
+        <Login />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByLabelText('Login')).toHaveValue('');
+    expect(screen.queryByRole('button', { name: /Dono/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Balcão/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Mecânico/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ambiente de desenvolvimento/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Todos os direitos reservados/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'notemaster' })).toHaveAttribute(
+      'href',
+      'https://www.notemaster.com.br/',
+    );
+    expect(screen.getByRole('link', { name: 'Marco de Castro' })).toHaveAttribute(
+      'href',
+      'https://www.reddit.com/user/marquinhodecastro/',
+    );
+  });
+
+  it('mostra os atalhos de perfil só quando a API marca demoUsers', async () => {
+    get.mockResolvedValue({ demoUsers: true });
+    render(
+      <MemoryRouter>
+        <Login />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('button', { name: /Dono/i })).toBeInTheDocument();
+    expect(screen.getByText(/Ambiente de desenvolvimento/)).toBeInTheDocument();
   });
 });

@@ -6,10 +6,12 @@ import { WorkOrder } from '../models/WorkOrder.js';
 import { getSettings } from '../models/Settings.js';
 import { centsToMpAmount, mpAmountToCents, assertCents } from '../utils/money.js';
 import { httpError } from '../utils/asyncHandler.js';
-import { checkoutBackUrls, publicApiUrl } from '../utils/security.js';
+import { checkoutBackUrls, isProduction, publicApiUrl } from '../utils/security.js';
 import { registerLedgerMovement, requireOpenRegister } from './cashService.js';
-import { enqueueFiscalDocument } from './fiscalService.js';
 import { WORK_ORDER_TERMINAL_STATUSES } from '../utils/workOrderStatus.js';
+import { enqueueJob } from '../utils/jobs.js';
+import { log } from '../utils/logger.js';
+import { recordPaymentApplyFailed, resolvePaymentApplyFailed } from './paymentOutbox.js';
 
 export const OPEN_CHARGE_STATUSES = ['pending', 'in_process'];
 
@@ -17,13 +19,22 @@ const CHARGE_IN_PROGRESS = 'Cobrança Mercado Pago já está sendo gerada. Aguar
 const CHARGE_AMOUNT_CHANGED =
   'Já existe uma cobrança Mercado Pago em aberto para este documento, com outro valor. Aguarde o pagamento ou a expiração antes de gerar outra.';
 
+function mercadoPagoAccessToken(settings) {
+  const fromEnv = String(process.env.MP_ACCESS_TOKEN || '').trim();
+  if (fromEnv) return fromEnv;
+  if (isProduction()) return '';
+  return String(settings?.mpAccessToken || '').trim();
+}
+
 async function getClient() {
   const settings = await getSettings();
-  const accessToken = process.env.MP_ACCESS_TOKEN || settings.mpAccessToken;
+  const accessToken = mercadoPagoAccessToken(settings);
   if (!accessToken) {
     throw httpError(
       400,
-      'Configure o Access Token do Mercado Pago em Ajustes ou na variável MP_ACCESS_TOKEN',
+      isProduction()
+        ? 'Configure MP_ACCESS_TOKEN no .env do servidor'
+        : 'Configure o Access Token do Mercado Pago em Ajustes ou na variável MP_ACCESS_TOKEN',
     );
   }
   return new MercadoPagoConfig({ accessToken, options: { timeout: 8000 } });
@@ -151,6 +162,7 @@ export async function createCheckoutPreference({
   chargeRemote,
 }) {
   assertCents(amount, 'valor Mercado Pago');
+  await requireOpenRegister();
   const { slot, reused } = await occupyChargeSlot({ relatedType, relatedId, amount });
   if (reused) {
     return {
@@ -182,6 +194,7 @@ export async function createPixPayment({
   chargeRemote,
 }) {
   assertCents(amount, 'valor PIX');
+  await requireOpenRegister();
   const { slot, reused } = await occupyChargeSlot({ relatedType, relatedId, amount });
   if (reused) return slot;
 
@@ -213,34 +226,41 @@ export async function syncPaymentStatus(mpPaymentId, { fetchRemote } = {}) {
   }
 
   if (!payment) {
-    try {
-      payment = await Payment.create({
-        provider: 'mercado_pago',
-        paymentId: String(mpPaymentId),
-        status: remote.status,
-        amount,
-        relatedType,
-        relatedId,
-        raw: remote,
-      });
-    } catch (error) {
-      if (error.code !== 11000) throw error;
-      payment = await Payment.findOne({ paymentId: String(mpPaymentId) });
-      if (!payment) throw error;
-    }
-  } else {
-    payment.paymentId = String(mpPaymentId);
-    payment.status = remote.status;
-    payment.amount = amount;
-    payment.raw = remote;
-    await payment.save();
+    log('warn', 'Webhook Mercado Pago sem cobrança local', { mpPaymentId });
+    return null;
   }
 
+  payment.paymentId = String(mpPaymentId);
+  payment.status = remote.status;
+  payment.amount = amount;
+  payment.raw = remote;
+  await payment.save();
+
   if (remote.status === 'approved' && payment.relatedId) {
-    await applyApprovedPayment(payment, remote);
+    try {
+      await applyApprovedPayment(payment, remote);
+      await resolvePaymentApplyFailed(String(mpPaymentId));
+    } catch (error) {
+      await recordPaymentApplyFailed({
+        mpPaymentId: String(mpPaymentId),
+        relatedType: payment.relatedType,
+        relatedId: payment.relatedId,
+        localPaymentId: payment._id,
+        message: error.message,
+      });
+      throw error;
+    }
   }
 
   return payment;
+}
+
+export async function processWebhookPayment(mpPaymentId, options) {
+  try {
+    return await syncPaymentStatus(mpPaymentId, options);
+  } catch (error) {
+    throw httpError(503, error.message || 'Falha ao aplicar pagamento Mercado Pago');
+  }
 }
 
 export async function applyApprovedPayment(payment, remote) {
@@ -284,7 +304,7 @@ export async function applyApprovedPayment(payment, remote) {
       referenceId: sale._id,
     });
     if (sale.status === 'paga') {
-      await enqueueFiscalDocument({ relatedType: 'sale', relatedId: sale._id }).catch(() => undefined);
+      enqueueJob('nfce.enqueue', { relatedType: 'sale', relatedId: String(sale._id) });
     }
     return;
   }
@@ -323,5 +343,8 @@ export async function applyApprovedPayment(payment, remote) {
       notes: `OS ${order.number}`,
       referenceId: order._id,
     });
+    if (order.paidAmount >= order.total && order.total > 0) {
+      enqueueJob('os.paid-notice', { orderId: String(order._id) });
+    }
   }
 }

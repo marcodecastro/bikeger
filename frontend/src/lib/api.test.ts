@@ -34,7 +34,10 @@ describe('request', () => {
     vi.mocked(fetch).mockResolvedValue(
       jsonResponse({ message: 'Nenhum caixa aberto. Abra o caixa para registrar este movimento.' }, 409),
     );
-    await expect(request('/sales', { method: 'POST' })).rejects.toThrow(/Nenhum caixa aberto/);
+    await expect(request('/sales', { method: 'POST' })).rejects.toMatchObject({
+      message: expect.stringMatching(/Nenhum caixa aberto/),
+      status: 409,
+    });
   });
 
   it('aborta quando o servidor não responde a tempo', async () => {

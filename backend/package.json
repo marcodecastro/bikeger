@@ -8,6 +8,8 @@
     "dev": "node --watch server.js",
     "seed": "node scripts/seed.js",
     "replica": "node scripts/ensure-replica-set.js",
+    "backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js",
     "test": "node --test tests/**/*.test.js"
   },
   "keywords": [],

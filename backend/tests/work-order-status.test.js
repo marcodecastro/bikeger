@@ -11,10 +11,20 @@ test('oficina pode pular etapa e voltar enquanto a OS está aberta', () => {
   assert.equal(canTransitionWorkOrder('aberta', 'em_servico'), true);
   assert.equal(canTransitionWorkOrder('aberta', 'pronta'), true);
   assert.equal(canTransitionWorkOrder('pronta', 'em_servico'), true);
+  assert.equal(canTransitionWorkOrder('diagnostico', 'orcamento'), true);
+  assert.equal(canTransitionWorkOrder('orcamento', 'aguardando_pecas'), true);
   assert.equal(canTransitionWorkOrder('diagnostico', 'aguardando_pecas'), true);
   assert.equal(canTransitionWorkOrder('pronta', 'entregue'), true);
   assert.equal(canTransitionWorkOrder('em_servico', 'cancelada'), true);
   assert.equal(canTransitionWorkOrder('pronta', 'pronta'), true);
+});
+
+test('entregar só a partir de pronta', () => {
+  assert.equal(canTransitionWorkOrder('aberta', 'entregue'), false);
+  assert.equal(canTransitionWorkOrder('em_servico', 'entregue'), false);
+  assert.equal(canTransitionWorkOrder('diagnostico', 'entregue'), false);
+  assert.ok(!allowedWorkOrderStatuses('aberta').includes('entregue'));
+  assert.ok(allowedWorkOrderStatuses('pronta').includes('entregue'));
 });
 
 test('entregue e cancelada são estados finais', () => {
@@ -33,4 +43,5 @@ test('assert da transição fala a língua da oficina', () => {
   assert.doesNotThrow(() => assertWorkOrderTransition('aberta', 'diagnostico'));
   assert.throws(() => assertWorkOrderTransition('entregue', 'aberta'), /OS entregue não pode mudar de status/);
   assert.throws(() => assertWorkOrderTransition('cancelada', 'pronta'), /OS cancelada não pode mudar de status/);
+  assert.throws(() => assertWorkOrderTransition('aberta', 'entregue'), /Só dá para entregar a OS quando ela está pronta/);
 });

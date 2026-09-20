@@ -8,8 +8,12 @@ export function signToken(user) {
   return jwt.sign(
     { sub: String(user._id), role: user.role, name: user.name, login: user.login },
     tokenSecret(),
-    { expiresIn: '12h' },
+    { expiresIn: '12h', algorithm: 'HS256' },
   );
+}
+
+export function verifyAccessToken(token) {
+  return jwt.verify(token, tokenSecret(), { algorithms: ['HS256'] });
 }
 
 export function publicUser(user) {
@@ -30,7 +34,7 @@ export async function requireAuth(req, _res, next) {
     const token = header.startsWith('Bearer ') ? header.slice(7) : '';
     if (!token) throw httpError(401, 'Faça login para continuar');
 
-    const payload = jwt.verify(token, tokenSecret());
+    const payload = verifyAccessToken(token);
     const user = await User.findById(payload.sub);
     if (!user || !user.active) throw httpError(401, 'Sessão inválida. Entre de novo.');
 

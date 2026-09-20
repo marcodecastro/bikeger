@@ -6,8 +6,14 @@ import {
   ALREADY_OPEN_MESSAGE,
   closeRegister,
   getOpenRegister,
+  listCashMovements,
   openRegister,
+  registerCashMovement,
+  registerLedgerMovement,
 } from '../src/services/cashService.js';
+import { CashMovement } from '../src/models/CashMovement.js';
+import { Job } from '../src/models/Job.js';
+import { enqueueJob, flushJobs } from '../src/utils/jobs.js';
 
 const uri = process.env.MONGODB_TEST_URI_A5 || 'mongodb://127.0.0.1:27017/bikeger_test_a5';
 
@@ -18,6 +24,7 @@ before(async () => {
 });
 
 after(async () => {
+  await flushJobs();
   await mongoose.disconnect();
 });
 
@@ -71,4 +78,32 @@ test('depois de fechar, o caixa pode abrir de novo', async () => {
   assert.equal(again.openingAmount, 5000);
   assert.equal(await CashRegister.countDocuments({ status: 'aberto' }), 1);
   assert.equal(await CashRegister.countDocuments({ status: 'fechado' }), 1);
+});
+
+test('movimento vai para a coleção CashMovement e o fechamento imprime o dia', async () => {
+  await CashRegister.deleteMany({});
+  await CashMovement.deleteMany({});
+  await openRegister({ openingAmount: 1000, operator: 'marco' });
+  await registerLedgerMovement({ type: 'venda', method: 'pix', amount: 5000, notes: 'PIX da semana' });
+  await registerCashMovement({ type: 'sangria', amount: 200, notes: 'sangria teste' });
+
+  const pix = await listCashMovements({ method: 'pix' });
+  assert.equal(pix.length, 1);
+  assert.equal(pix[0].amount, 5000);
+  assert.equal(pix[0].type, 'venda');
+
+  const closed = await closeRegister({ countedCash: 800 });
+  assert.equal(closed.difference, 0);
+  assert.match(closed.dayReport.text, /RELATORIO DO DIA/);
+  assert.match(closed.dayReport.text, /PIX/);
+  assert.match(closed.dayReport.text, /Sangria/);
+  assert.match(closed.dayReport.text, /NFC-e desligada/);
+});
+
+test('job persistido no Mongo é processado no flush', async () => {
+  const job = await enqueueJob('backup.daily', { reason: 'teste' });
+  assert.ok(job._id);
+  await flushJobs();
+  const after = await Job.findById(job._id);
+  assert.equal(after.status, 'done');
 });

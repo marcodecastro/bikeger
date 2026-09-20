@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { getSettings } from '../models/Settings.js';
-import { asyncHandler } from '../utils/asyncHandler.js';
+import { asyncHandler, httpError } from '../utils/asyncHandler.js';
 import { fiscalReadiness } from '../utils/nfcePayload.js';
 import { whatsappCloudConfig } from '../utils/whatsappCloud.js';
+import { isProduction } from '../utils/security.js';
+import { normalizeStoreLogo } from '../utils/storeLogo.js';
 
 export const settingsRouter = Router();
 
@@ -26,10 +28,20 @@ settingsRouter.put(
     delete body.tokenFromEnv;
     delete body.hasWhatsAppCloud;
     delete body.whatsappFromEnv;
+    delete body.secretsFromEnv;
     if (isMasked(body.mpAccessToken)) delete body.mpAccessToken;
     if (isMasked(body.fiscalCscToken)) delete body.fiscalCscToken;
     if (isMasked(body.focusNfeToken)) delete body.focusNfeToken;
     if (isMasked(body.whatsappToken)) delete body.whatsappToken;
+    if (body.storeLogo !== undefined) body.storeLogo = normalizeStoreLogo(body.storeLogo);
+    if (body.waitingPartsDays !== undefined) {
+      const days = Number(body.waitingPartsDays);
+      if (!Number.isInteger(days) || days < 1 || days > 30) {
+        throw httpError(400, 'Dias de OS parada deve ser um inteiro de 1 a 30');
+      }
+      body.waitingPartsDays = days;
+    }
+    stripProductionSecrets(body);
     Object.assign(settings, body);
     await settings.save();
     res.json(toPublicSettings(settings));
@@ -45,18 +57,31 @@ export function maskSecret(value) {
   return '••••••••';
 }
 
-function toPublicSettings(settings) {
+const PRODUCTION_SECRET_FIELDS = ['mpAccessToken', 'focusNfeToken', 'whatsappToken'];
+
+function stripProductionSecrets(body) {
+  if (!isProduction()) return;
+  for (const field of PRODUCTION_SECRET_FIELDS) {
+    if (body[field]) {
+      throw httpError(400, `${field} em produção vai só no .env do servidor`);
+    }
+    delete body[field];
+  }
+}
+
+export function toPublicSettings(settings) {
   const safe = settings.toObject();
-  if (safe.mpAccessToken) safe.mpAccessToken = maskSecret(safe.mpAccessToken);
-  if (safe.fiscalCscToken) safe.fiscalCscToken = maskSecret(safe.fiscalCscToken);
-  if (safe.focusNfeToken) safe.focusNfeToken = maskSecret(safe.focusNfeToken);
-  if (safe.whatsappToken) safe.whatsappToken = maskSecret(safe.whatsappToken);
+  delete safe.mpAccessToken;
+  delete safe.focusNfeToken;
+  delete safe.whatsappToken;
+  delete safe.fiscalCscToken;
   const readiness = fiscalReadiness(settings);
   const whatsapp = whatsappCloudConfig(settings);
-  safe.hasMpToken = Boolean(process.env.MP_ACCESS_TOKEN || settings.mpAccessToken);
+  safe.hasMpToken = Boolean(String(process.env.MP_ACCESS_TOKEN || '').trim() || (!isProduction() && settings.mpAccessToken));
   safe.hasFocusNfe = readiness.hasToken;
   safe.hasCsc = Boolean(settings.fiscalCscId && settings.fiscalCscToken);
   safe.tokenFromEnv = readiness.tokenFromEnv;
+  safe.secretsFromEnv = isProduction();
   safe.fiscalReady = readiness.canEmit;
   safe.fiscalMissing = readiness.missing;
   safe.mpPublicKey = process.env.MP_PUBLIC_KEY || settings.mpPublicKey;

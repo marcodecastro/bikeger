@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { get, post } from '../lib/api';
 import { PAYMENT_METHODS } from '../lib/labels';
 import { addCartLine, cartTotals } from '../lib/cart';
 import { formatBRL, multiplyCents } from '../lib/money';
+import { isOpenPixStatus, PIX_POLL_MS } from '../lib/paymentPoll';
 import { useBusy } from '../lib/useBusy';
-import type { CashRegister, Customer, Product, Receipt, Sale } from '../types';
+import type { CashRegister, Customer, MpPixPayment, Product, Receipt, Sale } from '../types';
 import { MoneyInput } from '../components/MoneyInput';
 import { ReceiptModal } from '../components/ReceiptModal';
+import { EntitySearch } from '../components/EntitySearch';
 
 interface CartItem {
   product: Product;
@@ -18,18 +20,23 @@ export function Pos() {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerId, setCustomerId] = useState('');
+  const [customerLabel, setCustomerLabel] = useState('');
   const [discount, setDiscount] = useState(0);
   const [method, setMethod] = useState('pix');
   const [cashReceived, setCashReceived] = useState(0);
   const [error, setError] = useState('');
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [cashOpen, setCashOpen] = useState<boolean | null>(null);
+  const [pix, setPix] = useState<MpPixPayment | null>(null);
+  const [pendingSaleId, setPendingSaleId] = useState('');
   const { busy, run } = useBusy();
+  const pixRef = useRef(pix);
+  pixRef.current = pix;
+
+  const searchCustomers = useCallback((q: string) => get<Customer[]>(`/customers?q=${encodeURIComponent(q)}`), []);
 
   useEffect(() => {
-    get<Customer[]>('/customers').then(setCustomers).catch(() => undefined);
     get<CashRegister | null>('/cash/current')
       .then((register) => setCashOpen(Boolean(register?._id)))
       .catch(() => setCashOpen(null));
@@ -47,6 +54,40 @@ export function Pos() {
     }, 160);
     return () => window.clearTimeout(timer);
   }, [query]);
+
+  useEffect(() => {
+    if (!pendingSaleId || !pix?._id) return;
+    const timer = window.setInterval(() => {
+      const currentPix = pixRef.current;
+      if (!currentPix || !isOpenPixStatus(currentPix.status)) return;
+      void (async () => {
+        try {
+          const charges = await get<MpPixPayment[]>(`/payments?relatedType=sale&relatedId=${pendingSaleId}`);
+          const same = charges.find((item) => item._id === currentPix._id) || charges[0];
+          if (same && (same.status !== currentPix.status || same.paymentId !== currentPix.paymentId)) {
+            setPix(same);
+          }
+        } catch {
+          /* poll */
+        }
+        try {
+          const sale = await get<Sale>(`/sales/${pendingSaleId}`);
+          if (sale.status === 'paga') {
+            const printed = await get<Receipt>(`/sales/${sale._id}/receipt`);
+            setCart([]);
+            setDiscount(0);
+            setCashReceived(0);
+            setPix(null);
+            setPendingSaleId('');
+            setReceipt(printed);
+          }
+        } catch {
+          /* ignore */
+        }
+      })();
+    }, PIX_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [pendingSaleId, pix?._id]);
 
   const { subtotal, total, change } = useMemo(
     () => cartTotals(cart, discount, method, cashReceived),
@@ -110,14 +151,35 @@ export function Pos() {
             unitPrice: item.unitPrice,
           })),
           discount,
-          payments: [{ method, amount: total, status: 'aprovado' }],
+          payments: [{ method, amount: total }],
           cashReceived: method === 'dinheiro' ? cashReceived : 0,
         });
-        const printed = await get<Receipt>(`/sales/${sale._id}/receipt`);
-        setCart([]);
-        setDiscount(0);
-        setCashReceived(0);
-        setReceipt(printed);
+        if (sale.status === 'paga') {
+          const printed = await get<Receipt>(`/sales/${sale._id}/receipt`);
+          setCart([]);
+          setDiscount(0);
+          setCashReceived(0);
+          setReceipt(printed);
+          return;
+        }
+        if (method === 'pix') {
+          const created = await post<MpPixPayment>('/payments/pix', {
+            relatedType: 'sale',
+            relatedId: sale._id,
+          });
+          setPendingSaleId(sale._id);
+          setPix(created);
+          return;
+        }
+        if (method === 'mercado_pago') {
+          const created = await post<{ initPoint?: string }>('/payments/preference', {
+            relatedType: 'sale',
+            relatedId: sale._id,
+          });
+          if (created.initPoint) window.location.assign(created.initPoint);
+          return;
+        }
+        setError('Pagamento ainda em aberto. Confira o caixa e tente de novo.');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Falha ao finalizar venda');
       }
@@ -180,7 +242,7 @@ export function Pos() {
                   <div className="muted">{item.product.sku}</div>
                 </div>
                 <input
-                  style={{ width: 70 }}
+                  className="qty-input"
                   type="number"
                   min={1}
                   value={item.quantity}
@@ -209,17 +271,21 @@ export function Pos() {
         </article>
 
         <article className="card">
-          <label className="field">
-            Cliente
-            <select value={customerId} onChange={(event) => setCustomerId(event.target.value)}>
-              <option value="">Balcão / avulso</option>
-              {customers.map((customer) => (
-                <option key={customer._id} value={customer._id}>
-                  {customer.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <EntitySearch
+            label="Cliente"
+            placeholder="Nome, telefone ou documento"
+            emptyLabel="Balcão / avulso"
+            value={customerId}
+            selectedLabel={customerLabel}
+            fetchItems={searchCustomers}
+            getKey={(item) => item._id}
+            getLabel={(item) => item.name}
+            getExtra={(item) => item.phone}
+            onSelect={(item) => {
+              setCustomerId(item?._id || '');
+              setCustomerLabel(item?.name || '');
+            }}
+          />
           <MoneyInput label="Desconto" valueCents={discount} onChangeCents={setDiscount} />
           <label className="field">
             Pagamento
@@ -242,7 +308,27 @@ export function Pos() {
           {cashOpen === false ? (
             <p className="error">Abra o caixa para finalizar a venda.</p>
           ) : null}
-          {error ? <p className="error">{error}</p> : null}
+          {pix ? (
+            <div style={{ marginTop: 16 }}>
+              <p>PIX {pix.status}</p>
+              {pix.qrCodeBase64 ? (
+                <img
+                  className="pix-qr"
+                  alt="QR Code PIX"
+                  src={`data:image/png;base64,${pix.qrCodeBase64}`}
+                />
+              ) : null}
+              <p className="muted pix-payload">{pix.qrCode}</p>
+              {isOpenPixStatus(pix.status) ? (
+                <p className="muted">O status atualiza sozinho quando o PIX cair.</p>
+              ) : null}
+            </div>
+          ) : null}
+          {error ? (
+            <p className="error" role="alert" aria-live="polite">
+              {error}
+            </p>
+          ) : null}
           <button
             type="button"
             className="btn btn-primary"
@@ -251,7 +337,7 @@ export function Pos() {
             aria-busy={busy}
             onClick={() => void checkout()}
           >
-            Finalizar e imprimir
+            {method === 'pix' ? 'Finalizar e gerar PIX' : 'Finalizar e imprimir'}
           </button>
         </article>
       </div>

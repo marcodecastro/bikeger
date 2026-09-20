@@ -82,6 +82,7 @@ export function SaleDetail() {
         </div>
       </div>
       <article className="card">
+        <div className="table-wrap">
         <table>
           <tbody>
             {sale.items.map((item) => (
@@ -97,6 +98,7 @@ export function SaleDetail() {
             ))}
           </tbody>
         </table>
+        </div>
         <p className="money" style={{ fontSize: 28 }}>
           {formatBRL(sale.total)}
         </p>

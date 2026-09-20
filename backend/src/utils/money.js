@@ -48,6 +48,19 @@ export function formatBRL(cents) {
   return `${sign}R$ ${reais.toLocaleString('pt-BR')},${String(centavos).padStart(2, '0')}`;
 }
 
+export function weightedAverageCost(oldQty, oldCostCents, addQty, addCostCents) {
+  assertCents(oldCostCents, 'custo anterior');
+  assertCents(addCostCents, 'custo da compra');
+  if (!Number.isInteger(oldQty) || oldQty < 0) {
+    throw new MoneyError('estoque anterior deve ser um inteiro não negativo');
+  }
+  if (!Number.isInteger(addQty) || addQty <= 0) {
+    throw new MoneyError('quantidade comprada deve ser um inteiro positivo');
+  }
+  if (oldQty === 0) return addCostCents;
+  return Math.round((oldQty * oldCostCents + addQty * addCostCents) / (oldQty + addQty));
+}
+
 export function parseBRLToCents(input) {
   if (typeof input === 'number') {
     if (!Number.isInteger(input)) {

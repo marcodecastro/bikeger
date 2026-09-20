@@ -2,6 +2,24 @@ import { useEffect, useState } from 'react';
 import { get, put } from '../lib/api';
 import type { Settings } from '../types';
 
+function previewNotice(template: string, storeName: string) {
+  return template
+    .replaceAll('{nome}', 'Maria')
+    .replaceAll('{bike}', 'Caloi Elite')
+    .replaceAll('{os}', 'OS-00042')
+    .replaceAll('{loja}', storeName || 'BikeGer')
+    .replaceAll('{valor}', 'R$ 249,80');
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
 export function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [mpToken, setMpToken] = useState('');
@@ -11,6 +29,9 @@ export function SettingsPage() {
   const [mechanicText, setMechanicText] = useState('');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [logoBusy, setLogoBusy] = useState(false);
+
+  const MAX_LOGO_BYTES = 250 * 1024;
 
   useEffect(() => {
     get<Settings>('/settings')
@@ -25,6 +46,28 @@ export function SettingsPage() {
 
   function set<K extends keyof Settings>(key: K, value: Settings[K]) {
     setSettings((current) => (current ? { ...current, [key]: value } : current));
+  }
+
+  async function onLogoFile(file: File | null) {
+    if (!file) return;
+    if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) {
+      setError('Use PNG, JPEG ou WebP.');
+      return;
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      setError('Logo até 250 KB.');
+      return;
+    }
+    setLogoBusy(true);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      set('storeLogo', dataUrl);
+      setError('');
+    } catch {
+      setError('Não foi possível ler a imagem.');
+    } finally {
+      setLogoBusy(false);
+    }
   }
 
   async function save() {
@@ -48,9 +91,11 @@ export function SettingsPage() {
       setCscToken('');
       setWaToken('');
       setStatus(
-        saved.fiscalReady
-          ? 'Ajustes salvos. NFC-e pronta para homologação.'
-          : 'Ajustes salvos. Ainda falta cadastro fiscal para emitir.',
+        saved.fiscalEnabled
+          ? saved.fiscalReady
+            ? 'Ajustes salvos. NFC-e pronta para homologação.'
+            : 'Ajustes salvos. Ainda falta cadastro fiscal para emitir.'
+          : 'Ajustes salvos. NFC-e desligada — a loja opera com cupom térmico.',
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao salvar ajustes');
@@ -62,7 +107,7 @@ export function SettingsPage() {
       <div className="page-head">
         <div>
           <h2>Ajustes</h2>
-          <p>Loja, Mercado Pago e NFC-e. O FOCUS_NFE_TOKEN fica aqui ou no .env do servidor.</p>
+          <p>Loja, Mercado Pago e NFC-e. Em produção os tokens (MP, Focus, WhatsApp) ficam só no .env.</p>
         </div>
       </div>
       <article className="card grid grid-2">
@@ -70,6 +115,27 @@ export function SettingsPage() {
           Nome da loja
           <input value={settings.storeName} onChange={(event) => set('storeName', event.target.value)} />
         </label>
+        <label className="field">
+          Logo da loja
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            disabled={logoBusy}
+            onChange={(event) => void onLogoFile(event.target.files?.[0] || null)}
+          />
+        </label>
+        {settings.storeLogo ? (
+          <div className="logo-preview" style={{ gridColumn: '1 / -1' }}>
+            <img src={settings.storeLogo} alt="Logo da loja" />
+            <button type="button" className="btn" onClick={() => set('storeLogo', '')}>
+              Remover logo
+            </button>
+          </div>
+        ) : (
+          <p className="muted" style={{ gridColumn: '1 / -1' }}>
+            PNG, JPEG ou WebP até 250 KB. Aparece no login, no menu e na impressão do navegador.
+          </p>
+        )}
         <label className="field">
           Telefone
           <input value={settings.storePhone} onChange={(event) => set('storePhone', event.target.value)} />
@@ -101,6 +167,24 @@ export function SettingsPage() {
           />
         </label>
         <label className="field" style={{ gridColumn: '1 / -1' }}>
+          Aviso de OS aberta (WhatsApp)
+          <textarea
+            value={
+              settings.openedNoticeTemplate ||
+              '{nome}, a {bike} entrou na oficina ({os}) na {loja}.'
+            }
+            onChange={(event) => set('openedNoticeTemplate', event.target.value)}
+          />
+          <span className="muted">
+            Preview:{' '}
+            {previewNotice(
+              settings.openedNoticeTemplate ||
+                '{nome}, a {bike} entrou na oficina ({os}) na {loja}.',
+              settings.storeName,
+            )}
+          </span>
+        </label>
+        <label className="field" style={{ gridColumn: '1 / -1' }}>
           Aviso de OS pronta (WhatsApp)
           <textarea
             value={
@@ -109,6 +193,60 @@ export function SettingsPage() {
             }
             onChange={(event) => set('readyNoticeTemplate', event.target.value)}
           />
+          <span className="muted">
+            Preview:{' '}
+            {previewNotice(
+              settings.readyNoticeTemplate ||
+                '{nome}, a {bike} da OS {os} está pronta para retirada na {loja}.',
+              settings.storeName,
+            )}
+          </span>
+        </label>
+        <label className="field" style={{ gridColumn: '1 / -1' }}>
+          Aviso de OS paga / pode retirar
+          <textarea
+            value={
+              settings.paidNoticeTemplate ||
+              '{nome}, a {bike} da OS {os} já está paga e pode retirar na {loja}.'
+            }
+            onChange={(event) => set('paidNoticeTemplate', event.target.value)}
+          />
+          <span className="muted">
+            Preview:{' '}
+            {previewNotice(
+              settings.paidNoticeTemplate ||
+                '{nome}, a {bike} da OS {os} já está paga e pode retirar na {loja}.',
+              settings.storeName,
+            )}
+          </span>
+        </label>
+        <label className="field" style={{ gridColumn: '1 / -1' }}>
+          Aviso de orçamento (WhatsApp)
+          <textarea
+            value={
+              settings.quoteNoticeTemplate ||
+              '{nome}, o orçamento da {bike} na OS {os} ficou em {valor}. Pode fazer? {loja}'
+            }
+            onChange={(event) => set('quoteNoticeTemplate', event.target.value)}
+          />
+          <span className="muted">
+            Preview:{' '}
+            {previewNotice(
+              settings.quoteNoticeTemplate ||
+                '{nome}, o orçamento da {bike} na OS {os} ficou em {valor}. Pode fazer? {loja}',
+              settings.storeName,
+            )}
+          </span>
+        </label>
+        <label className="field">
+          OS parada em aguardando peças (dias)
+          <input
+            type="number"
+            min={1}
+            max={30}
+            value={settings.waitingPartsDays || 3}
+            onChange={(event) => set('waitingPartsDays', Number(event.target.value))}
+          />
         </label>
         <label className="field">
           Token WhatsApp Cloud
@@ -116,7 +254,7 @@ export function SettingsPage() {
             value={waToken}
             placeholder={
               settings.hasWhatsAppCloud
-                ? settings.whatsappFromEnv
+                ? settings.whatsappFromEnv || settings.secretsFromEnv
                   ? 'Token já definido no .env'
                   : 'Token já salvo nos ajustes'
                 : 'WHATSAPP_TOKEN da Meta'
@@ -135,7 +273,7 @@ export function SettingsPage() {
         </label>
         <p className="muted" style={{ gridColumn: '1 / -1' }}>
           {settings.hasWhatsAppCloud
-            ? 'Aviso de OS pronta tenta a API oficial. Se falhar, o balcão ainda abre o wa.me.'
+            ? 'Aviso tenta a API oficial. Se falhar, o balcão ainda abre o wa.me. Quatro eventos: oficina, orçamento, pronta e paga. Sem campanha de marketing.'
             : 'Sem token da Cloud, o aviso continua pelo wa.me (o atendente envia na hora).'}
         </p>
         <label className="field" style={{ gridColumn: '1 / -1' }}>
@@ -168,7 +306,7 @@ export function SettingsPage() {
             value={focusToken}
             placeholder={
               settings.hasFocusNfe
-                ? settings.tokenFromEnv
+                ? settings.tokenFromEnv || settings.secretsFromEnv
                   ? 'Token já definido no .env do servidor'
                   : 'Token já salvo nos ajustes'
                 : 'token da API Focus (homologação ou produção)'
@@ -281,18 +419,25 @@ export function SettingsPage() {
             value={settings.fiscalEnabled ? '1' : '0'}
             onChange={(event) => set('fiscalEnabled', event.target.value === '1')}
           >
-            <option value="0">Não (só rascunho; emita na venda)</option>
-            <option value="1">Sim (requer token + cadastro completo)</option>
+            <option value="0">Não usar NFC-e (só cupom térmico)</option>
+            <option value="1">Sim (requer token Focus + cadastro completo)</option>
           </select>
         </label>
         <div className="muted" style={{ gridColumn: '1 / -1' }}>
-          {settings.fiscalReady ? (
-            <p>Pronto para emitir na Focus ({settings.fiscalEnvironment}).</p>
+          {settings.fiscalEnabled ? (
+            settings.fiscalReady ? (
+              <p>Pronto para emitir na Focus ({settings.fiscalEnvironment}). O sistema consulta até autorizar ou rejeitar.</p>
+            ) : (
+              <p>
+                Falta para emitir:{' '}
+                {(settings.fiscalMissing || []).join(', ') || 'cadastro fiscal'}. O token da Focus
+                também precisa estar cadastrado na empresa deles, com o CSC da SEFAZ.
+              </p>
+            )
           ) : (
             <p>
-              Falta para emitir:{' '}
-              {(settings.fiscalMissing || []).join(', ') || 'cadastro fiscal'}. O token da Focus
-              também precisa estar cadastrado na empresa deles, com o CSC da SEFAZ.
+              NFC-e é opcional. Com esta opção desligada o PDV não espera a SEFAZ e o rascunho
+              fiscal não vira obrigação. Liga só quando a loja for emitir de verdade.
             </p>
           )}
         </div>

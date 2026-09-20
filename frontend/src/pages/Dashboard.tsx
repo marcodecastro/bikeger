@@ -10,12 +10,35 @@ export function Dashboard() {
   const { can } = useAuth();
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState('');
+  const [retrying, setRetrying] = useState(false);
+  const [retryMessage, setRetryMessage] = useState('');
+
+  async function load() {
+    const next = await get<DashboardData>('/dashboard');
+    setData(next);
+  }
 
   useEffect(() => {
-    get<DashboardData>('/dashboard')
-      .then(setData)
-      .catch((err: Error) => setError(err.message));
+    load().catch((err: Error) => setError(err.message));
   }, []);
+
+  async function retryPix() {
+    setRetrying(true);
+    setRetryMessage('');
+    try {
+      const result = await post<{ ok: number; fail: number }>('/payments/outbox/retry');
+      await load();
+      setRetryMessage(
+        result.fail
+          ? `${result.ok} baixaram; ${result.fail} ainda pendentes. Abra o caixa se estiver fechado.`
+          : `${result.ok} PIX baixaram no livro.`,
+      );
+    } catch (err) {
+      setRetryMessage(err instanceof Error ? err.message : 'Falha ao reaplicar PIX');
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   if (error) {
     return (
@@ -56,7 +79,7 @@ export function Dashboard() {
           <article className="card kpi">
             <span>Seu turno</span>
             <strong>Oficina</strong>
-            <em>Peça lançada já baixa o estoque</em>
+            <em>Orçamento não reserva peça. Só baixa depois da aprovação.</em>
           </article>
         )}
         {can('sales') ? (
@@ -68,13 +91,13 @@ export function Dashboard() {
         ) : (
           <article className="card kpi">
             <span>OS em andamento</span>
-            <strong>{data.openOrders.length}</strong>
+            <strong>{data.openOrderCount ?? data.openOrders.length}</strong>
             <em>foque no diagnóstico e nas peças</em>
           </article>
         )}
         <article className="card kpi">
           <span>OS em andamento</span>
-          <strong>{data.openOrders.length}</strong>
+          <strong>{data.openOrderCount ?? data.openOrders.length}</strong>
           <em>{data.workshop.pronta || 0} prontas para entrega</em>
         </article>
         <article className="card kpi">
@@ -83,6 +106,25 @@ export function Dashboard() {
           <em>{data.register ? 'Caixa aberto' : 'Caixa fechado'}</em>
         </article>
       </div>
+
+      {can('payments') && (data.pendingApplyCount || 0) > 0 ? (
+        <article className="card" style={{ marginTop: 16 }}>
+          <h3>PIX pago sem baixa no livro</h3>
+          <p>
+            {data.pendingApplyCount} cobrança(s) já pagas no Mercado Pago. Se o caixa estava fechado,
+            abra o caixa ou tente de novo aqui.
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={retrying}
+            onClick={() => void retryPix()}
+          >
+            Tentar de novo
+          </button>
+          {retryMessage ? <p className="muted">{retryMessage}</p> : null}
+        </article>
+      ) : null}
 
       <div className="grid grid-2" style={{ marginTop: 16 }}>
         <article className="card">
@@ -135,6 +177,31 @@ export function Dashboard() {
           )}
         </article>
       </div>
+
+      {data.waitingParts?.length ? (
+        <article className="card" style={{ marginTop: 16 }}>
+          <h3>OS parada — aguardando peças</h3>
+          <p className="muted">
+            Há {data.waitingPartsDays || 3} dia(s) ou mais sem o lote chegar. Confira a compra.
+          </p>
+          <div className="stack-list">
+            {data.waitingParts.map((order) => (
+              <Link className="stack-item" key={order._id} to={`/oficina/${order._id}`}>
+                <div className="stack-copy">
+                  <strong>{order.number}</strong>
+                  <span>{order.customer?.name}</span>
+                  <span className="muted">
+                    {order.bike?.brand} {order.bike?.model}
+                  </span>
+                </div>
+                <div className="stack-meta">
+                  <span className="badge warn">aguardando</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </article>
+      ) : null}
 
       {data.pendingNotices?.length ? (
         <article className="card" style={{ marginTop: 16 }}>

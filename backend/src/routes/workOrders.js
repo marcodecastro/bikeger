@@ -8,6 +8,7 @@ import {
   cancelWorkOrder,
   consumePartOnWorkOrder,
   createWorkOrder,
+  listWorkOrderBoard,
   populateOrder,
   removePartFromWorkOrder,
   removeServiceFromWorkOrder,
@@ -48,6 +49,14 @@ workOrdersRouter.get(
     const settings = await getSettings();
     const names = (settings.mechanicNames || []).map((name) => String(name).trim()).filter(Boolean);
     res.json({ mechanicNames: names.length ? names : ['Oficina'] });
+  }),
+);
+
+workOrdersRouter.get(
+  '/board',
+  asyncHandler(async (req, res) => {
+    const board = await listWorkOrderBoard({ limit: req.query.limit });
+    jsonWithoutCost(req, res, board);
   }),
 );
 

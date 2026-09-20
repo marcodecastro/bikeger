@@ -2,7 +2,12 @@ import mongoose from 'mongoose';
 
 const notificationSchema = new mongoose.Schema(
   {
-    kind: { type: String, enum: ['os_pronta'], default: 'os_pronta', index: true },
+    kind: {
+      type: String,
+      enum: ['os_pronta', 'os_aberta', 'os_paga', 'os_orcamento'],
+      default: 'os_pronta',
+      index: true,
+    },
     workOrder: { type: mongoose.Schema.Types.ObjectId, ref: 'WorkOrder', required: true, index: true },
     customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', default: null },
     channel: { type: String, enum: ['whatsapp'], default: 'whatsapp' },

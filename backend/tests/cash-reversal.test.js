@@ -24,6 +24,7 @@ import {
   cancelWorkOrder,
   createWorkOrder,
 } from '../src/services/workOrderService.js';
+import { flushJobs } from '../src/utils/jobs.js';
 
 const uri = process.env.MONGODB_TEST_URI_A10 || 'mongodb://127.0.0.1:27017/bikeger_test_a10';
 
@@ -42,6 +43,7 @@ before(async () => {
 });
 
 after(async () => {
+  await flushJobs();
   await mongoose.disconnect();
 });
 
@@ -140,7 +142,7 @@ test('cancelar venda após fechar o caixa estorna no novo aberto e devolve estoq
   const product = await makeProduct();
   const sale = await createSale({
     items: [{ product: product._id, quantity: 1 }],
-    payments: [{ method: 'pix', amount: 2000 }],
+    payments: [{ method: 'cartao_debito', amount: 2000 }],
     operator: 'teste',
   });
   const closed = await closeRegister({ countedCash: 0 });
@@ -152,12 +154,12 @@ test('cancelar venda após fechar o caixa estorna no novo aberto e devolve estoq
 
   const morning = await CashRegister.findById(closed._id);
   assert.equal(movementsFor(morning, sale._id).filter((movement) => movement.type === 'estorno').length, 0);
-  assert.equal(summarizeRegister(morning).byMethod.pix, 2000);
+  assert.equal(summarizeRegister(morning).byMethod.cartao_debito, 2000);
 
   const afternoon = await CashRegister.findOne({ status: 'aberto' });
   const reversal = movementsFor(afternoon, sale._id).find((movement) => movement.type === 'estorno');
   assert.equal(reversal.amount, 2000);
-  assert.equal(reversal.method, 'pix');
+  assert.equal(reversal.method, 'cartao_debito');
 });
 
 test('cancelar OS paga após fechar o caixa estorna no novo aberto', async () => {

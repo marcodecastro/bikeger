@@ -1,12 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { can, capabilitiesFor } from '../src/utils/roles.js';
+import { can, capabilitiesFor, ROLE_CAPABILITIES_CONTRACT } from '../src/utils/roles.js';
+import sharedCaps from '../../shared/role-capabilities.json' with { type: 'json' };
 
 test('dono recebe * e passa em qualquer capability', () => {
   assert.deepEqual(capabilitiesFor('dono'), ['*']);
   assert.equal(can('dono', 'settings'), true);
   assert.equal(can('dono', 'products.write'), true);
   assert.equal(can('dono', 'cash'), true);
+  assert.equal(can('dono', 'audit'), true);
+  assert.equal(can('balcao', 'audit'), false);
 });
 
 test('balcão vende e escreve cliente, mas não mexe em equipe', () => {
@@ -26,4 +29,10 @@ test('mecânico lê oficina e não vê venda nem custo', () => {
   assert.equal(can('mecanico', 'customers'), false);
   assert.equal(can('mecanico', 'sales'), false);
   assert.equal(can('mecanico', 'payments'), false);
+});
+
+test('contrato de capabilities é o JSON compartilhado', () => {
+  assert.deepEqual(ROLE_CAPABILITIES_CONTRACT, sharedCaps);
+  assert.deepEqual(capabilitiesFor('balcao'), sharedCaps.balcao);
+  assert.deepEqual(capabilitiesFor('mecanico'), sharedCaps.mecanico);
 });

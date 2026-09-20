@@ -17,6 +17,10 @@ import { usersRouter } from './users.js';
 import { fiscalRouter } from './fiscal.js';
 import { agendaRouter } from './agenda.js';
 import { notificationsRouter } from './notifications.js';
+import { auditRouter } from './audit.js';
+import { purchasesRouter } from './purchases.js';
+import { inventoryRouter } from './inventory.js';
+import { reportsRouter } from './reports.js';
 import { requireAuth, requireCapability } from '../middleware/auth.js';
 
 export const router = Router();
@@ -42,3 +46,7 @@ router.use('/users', requireCapability('users'), usersRouter);
 router.use('/fiscal', requireCapability('sales'), fiscalRouter);
 router.use('/agenda', requireCapability('agenda'), agendaRouter);
 router.use('/notifications', requireCapability('workshop'), notificationsRouter);
+router.use('/audit', requireCapability('audit'), auditRouter);
+router.use('/purchases', requireCapability('stock.read'), purchasesRouter);
+router.use('/inventory', requireCapability('stock.read'), inventoryRouter);
+router.use('/reports', requireCapability('audit'), reportsRouter);

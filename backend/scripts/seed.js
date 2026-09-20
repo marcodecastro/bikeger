@@ -368,7 +368,7 @@ async function seed() {
       { product: bySku['OLE-MUC']._id, quantity: 1 },
       { product: bySku['CAM-29S']._id, quantity: 2 },
     ],
-    payments: [{ method: 'pix', amount: 11970 }],
+    payments: [{ method: 'cartao_debito', amount: 11970 }],
     operator: 'Marco',
   });
 

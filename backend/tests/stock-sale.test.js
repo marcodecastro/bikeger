@@ -18,6 +18,7 @@ import {
 import { Bike } from '../src/models/Bike.js';
 import { WorkOrder } from '../src/models/WorkOrder.js';
 import { ensureOpenRegister } from './helpers/openCash.js';
+import { flushJobs } from '../src/utils/jobs.js';
 
 const uri = process.env.MONGODB_TEST_URI || 'mongodb://127.0.0.1:27017/bikeger_test';
 
@@ -37,6 +38,7 @@ before(async () => {
 });
 
 after(async () => {
+  await flushJobs();
   await mongoose.disconnect();
 });
 
@@ -113,7 +115,7 @@ test('venda de dois itens baixa os dois; cancelar estorna os dois', async () => 
       { product: a._id, quantity: 2 },
       { product: b._id, quantity: 1 },
     ],
-    payments: [{ method: 'pix', amount: 6000 }],
+    payments: [{ method: 'cartao_debito', amount: 6000 }],
     operator: 'teste',
   });
 
@@ -215,7 +217,7 @@ test('devolução parcial devolve só o que voltou; total cancela o restante', a
   const product = await makeProduct('TST-DEVOLVE', 10);
   const sale = await createSale({
     items: [{ product: product._id, quantity: 3 }],
-    payments: [{ method: 'pix', amount: 6000 }],
+    payments: [{ method: 'cartao_debito', amount: 6000 }],
   });
 
   const partial = await returnSale(sale._id, {

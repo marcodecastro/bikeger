@@ -109,3 +109,25 @@ productsRouter.put(
     res.json(product);
   }),
 );
+
+productsRouter.get(
+  '/:id/label',
+  asyncHandler(async (req, res) => {
+    const product = await Product.findById(req.params.id);
+    if (!product) throw httpError(404, 'Produto não encontrado');
+    const { buildShelfLabels } = await import('../services/printerService.js');
+    res.json(await buildShelfLabels([product]));
+  }),
+);
+
+productsRouter.post(
+  '/labels',
+  asyncHandler(async (req, res) => {
+    const ids = Array.isArray(req.body.productIds) ? req.body.productIds : [];
+    if (!ids.length) throw httpError(400, 'Informe as peças da etiqueta');
+    const products = await Product.find({ _id: { $in: ids } });
+    if (!products.length) throw httpError(404, 'Produto não encontrado');
+    const { buildShelfLabels } = await import('../services/printerService.js');
+    res.json(await buildShelfLabels(products));
+  }),
+);

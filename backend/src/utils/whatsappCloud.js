@@ -2,7 +2,10 @@ import { phoneToWhatsApp } from './notify.js';
 import { fetchWithTimeout, whatsappTimeoutMs } from './fetchTimeout.js';
 
 export function whatsappCloudConfig(settings = {}) {
-  const token = String(process.env.WHATSAPP_TOKEN || settings.whatsappToken || '').trim();
+  const fromEnv = String(process.env.WHATSAPP_TOKEN || '').trim();
+  const token =
+    fromEnv ||
+    (process.env.NODE_ENV === 'production' ? '' : String(settings.whatsappToken || '').trim());
   const phoneNumberId = String(
     process.env.WHATSAPP_PHONE_NUMBER_ID || settings.whatsappPhoneNumberId || '',
   ).trim();

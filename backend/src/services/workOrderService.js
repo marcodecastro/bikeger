@@ -7,11 +7,22 @@ import { addCents, assertCents, multiplyCents, subtractCents } from '../utils/mo
 import { httpError } from '../utils/asyncHandler.js';
 import { applyStockMovement, consumeReservation, releaseReservation, reserveStock } from './stockService.js';
 import { registerLedgerMovement, requireOpenRegister, reverseLedgerForReference } from './cashService.js';
-import { enqueueReadyNotice } from './notifyService.js';
 import { runInTransaction } from '../utils/transaction.js';
-import { assertWorkOrderOpen, assertWorkOrderTransition, isWorkOrderTerminal } from '../utils/workOrderStatus.js';
+import { enqueueJob } from '../utils/jobs.js';
+import { recordAudit } from './auditService.js';
+import { listLimit } from '../utils/listLimit.js';
+import {
+  assertWorkOrderOpen,
+  assertWorkOrderTransition,
+  isWorkOrderQuoteStatus,
+  isWorkOrderTerminal,
+  WORK_ORDER_KANBAN_STATUSES,
+  WORK_ORDER_RESERVE_STATUSES,
+} from '../utils/workOrderStatus.js';
 
 const CONSUME_STATUSES = new Set(['em_servico', 'pronta', 'entregue']);
+export const PAYMENT_EXCEEDS_TOTAL_MESSAGE = 'Pagamento maior que o valor em aberto';
+export const WORK_ORDER_CONFLICT_MESSAGE = 'A OS mudou em outra tela. Atualize e tente de novo.';
 
 export function recalcWorkOrder(order) {
   order.laborTotal = order.services.reduce((sum, item) => addCents(sum, item.total), 0);
@@ -25,6 +36,39 @@ export function recalcWorkOrder(order) {
     .reduce((sum, payment) => addCents(sum, payment.amount), 0);
   return order;
 }
+
+async function loadOrder(id, session) {
+  const order = await WorkOrder.findById(id).session(session || undefined);
+  if (!order) throw httpError(404, 'OS não encontrada');
+  return order;
+}
+
+async function persistOrder(order, session) {
+  const expectedVersion = order.__v;
+  const data = order.toObject({ depopulate: true, versionKey: false, virtuals: false });
+  delete data._id;
+  delete data.id;
+  delete data.createdAt;
+  delete data.updatedAt;
+
+  try {
+    const result = await WorkOrder.updateOne(
+      { _id: order._id, __v: expectedVersion },
+      { $set: data, $inc: { __v: 1 } },
+      { session: session || undefined },
+    );
+    if (result.matchedCount === 0) {
+      throw httpError(409, WORK_ORDER_CONFLICT_MESSAGE);
+    }
+    order.__v = expectedVersion + 1;
+  } catch (error) {
+    if (error.status === 409) throw error;
+    if (error.name === 'VersionError') throw httpError(409, WORK_ORDER_CONFLICT_MESSAGE);
+    throw error;
+  }
+}
+
+export { persistOrder as persistWorkOrder };
 
 export async function createWorkOrder(payload) {
   const bike = await Bike.findById(payload.bike);
@@ -55,138 +99,157 @@ export async function createWorkOrder(payload) {
     scheduleKind: payload.scheduleKind || 'servico',
   });
 
-  return WorkOrder.findById(order._id).populate('customer').populate('bike');
+  enqueueJob('os.opened-notice', { orderId: String(order._id) });
+  return populateOrder(order._id);
 }
 
 export async function addPartToWorkOrder(orderId, { productId, quantity, unitPrice, operator = 'oficina' }) {
-  const order = await WorkOrder.findById(orderId);
-  if (!order) throw httpError(404, 'OS não encontrada');
-  assertWorkOrderOpen(order, 'adicionar peça');
-  if (!Number.isInteger(quantity) || quantity <= 0) {
-    throw httpError(400, 'Quantidade da peça deve ser inteira e positiva');
-  }
+  await runInTransaction(async (session) => {
+    const order = await loadOrder(orderId, session);
+    assertWorkOrderOpen(order, 'adicionar peça');
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw httpError(400, 'Quantidade da peça deve ser inteira e positiva');
+    }
 
-  const product = await Product.findById(productId);
-  if (!product) throw httpError(404, 'Produto não encontrado');
+    const product = await Product.findById(productId).session(session || undefined);
+    if (!product) throw httpError(404, 'Produto não encontrado');
 
-  const price = unitPrice ?? product.salePrice;
-  assertCents(price, 'preço da peça');
-  const total = multiplyCents(price, quantity);
+    const price = unitPrice ?? product.salePrice;
+    assertCents(price, 'preço da peça');
+    const total = multiplyCents(price, quantity);
+    const quoted = isWorkOrderQuoteStatus(order.status);
 
-  const { movement } = await reserveStock({
-    productId: product._id,
-    quantity,
-    referenceType: 'workOrder',
-    referenceId: order._id,
-    notes: `Reserva OS ${order.number} — ${product.name}`,
-    operator,
-    unitCost: product.costPrice,
-    unitPrice: price,
+    let movement = null;
+    if (!quoted) {
+      ({ movement } = await reserveStock({
+        productId: product._id,
+        quantity,
+        referenceType: 'workOrder',
+        referenceId: order._id,
+        notes: `Reserva OS ${order.number} — ${product.name}`,
+        operator,
+        unitCost: product.costPrice,
+        unitPrice: price,
+        session,
+      }));
+    }
+
+    order.parts.push({
+      product: product._id,
+      sku: product.sku,
+      name: product.name,
+      quantity,
+      unitCost: product.costPrice,
+      unitPrice: price,
+      total,
+      stockStatus: quoted ? 'orcamento' : 'reservada',
+      stockMovement: movement?._id || null,
+    });
+
+    recalcWorkOrder(order);
+    await persistOrder(order, session);
   });
-
-  order.parts.push({
-    product: product._id,
-    sku: product.sku,
-    name: product.name,
-    quantity,
-    unitCost: product.costPrice,
-    unitPrice: price,
-    total,
-    stockStatus: 'reservada',
-    stockMovement: movement._id,
-  });
-
-  recalcWorkOrder(order);
-  await order.save();
-  return populateOrder(order._id);
+  return populateOrder(orderId);
 }
 
 export async function removePartFromWorkOrder(orderId, partId, operator = 'oficina') {
-  const order = await WorkOrder.findById(orderId);
-  if (!order) throw httpError(404, 'OS não encontrada');
-  assertWorkOrderOpen(order, 'remover peça');
+  await runInTransaction(async (session) => {
+    const order = await loadOrder(orderId, session);
+    assertWorkOrderOpen(order, 'remover peça');
 
-  const part = order.parts.id(partId);
-  if (!part) throw httpError(404, 'Peça não encontrada nesta OS');
+    const part = order.parts.id(partId);
+    if (!part) throw httpError(404, 'Peça não encontrada nesta OS');
 
-  if ((part.stockStatus || 'consumida') === 'reservada') {
-    await releaseReservation({
-      productId: part.product,
-      quantity: part.quantity,
-      referenceType: 'workOrder',
-      referenceId: order._id,
-      notes: `Libera reserva OS ${order.number}`,
-      operator,
-      unitCost: part.unitCost,
-      unitPrice: part.unitPrice,
-    });
-  } else {
-    await applyStockMovement({
-      productId: part.product,
-      type: 'os_estorno',
-      direction: 'entrada',
-      quantity: part.quantity,
-      referenceType: 'workOrder',
-      referenceId: order._id,
-      notes: `Estorno de peça da OS ${order.number}`,
-      operator,
-      unitCost: part.unitCost,
-      unitPrice: part.unitPrice,
-    });
-  }
+    if ((part.stockStatus || 'consumida') === 'orcamento') {
+      part.deleteOne();
+      recalcWorkOrder(order);
+      await persistOrder(order, session);
+      return;
+    }
 
-  part.deleteOne();
-  recalcWorkOrder(order);
-  await order.save();
-  return populateOrder(order._id);
+    if ((part.stockStatus || 'consumida') === 'reservada') {
+      await releaseReservation({
+        productId: part.product,
+        quantity: part.quantity,
+        referenceType: 'workOrder',
+        referenceId: order._id,
+        notes: `Libera reserva OS ${order.number}`,
+        operator,
+        unitCost: part.unitCost,
+        unitPrice: part.unitPrice,
+        session,
+      });
+    } else {
+      await applyStockMovement({
+        productId: part.product,
+        type: 'os_estorno',
+        direction: 'entrada',
+        quantity: part.quantity,
+        referenceType: 'workOrder',
+        referenceId: order._id,
+        notes: `Estorno de peça da OS ${order.number}`,
+        operator,
+        unitCost: part.unitCost,
+        unitPrice: part.unitPrice,
+        session,
+      });
+    }
+
+    part.deleteOne();
+    recalcWorkOrder(order);
+    await persistOrder(order, session);
+  });
+  return populateOrder(orderId);
 }
 
 export async function addServiceToWorkOrder(orderId, { serviceId, name, price, quantity = 1 }) {
-  const order = await WorkOrder.findById(orderId);
-  if (!order) throw httpError(404, 'OS não encontrada');
-  assertWorkOrderOpen(order, 'adicionar serviço');
-  if (!Number.isInteger(quantity) || quantity <= 0) {
-    throw httpError(400, 'Quantidade do serviço deve ser inteira e positiva');
-  }
+  await runInTransaction(async (session) => {
+    const order = await loadOrder(orderId, session);
+    assertWorkOrderOpen(order, 'adicionar serviço');
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw httpError(400, 'Quantidade do serviço deve ser inteira e positiva');
+    }
 
-  let serviceName = name;
-  let servicePrice = price;
-  let serviceRef = null;
+    let serviceName = name;
+    let servicePrice = price;
+    let serviceRef = null;
 
-  if (serviceId) {
-    const catalog = await Service.findById(serviceId);
-    if (!catalog) throw httpError(404, 'Serviço não encontrado');
-    serviceName = catalog.name;
-    servicePrice = price ?? catalog.price;
-    serviceRef = catalog._id;
-  }
+    if (serviceId) {
+      const catalog = await Service.findById(serviceId).session(session || undefined);
+      if (!catalog) throw httpError(404, 'Serviço não encontrado');
+      serviceName = catalog.name;
+      servicePrice = price ?? catalog.price;
+      serviceRef = catalog._id;
+    }
 
-  if (!serviceName) throw httpError(400, 'Informe o nome do serviço');
-  assertCents(servicePrice, 'preço do serviço');
+    if (!serviceName) throw httpError(400, 'Informe o nome do serviço');
+    assertCents(servicePrice, 'preço do serviço');
 
-  order.services.push({
-    service: serviceRef,
-    name: serviceName,
-    price: servicePrice,
-    quantity,
-    total: multiplyCents(servicePrice, quantity),
+    order.services.push({
+      service: serviceRef,
+      name: serviceName,
+      price: servicePrice,
+      quantity,
+      total: multiplyCents(servicePrice, quantity),
+    });
+
+    recalcWorkOrder(order);
+    await persistOrder(order, session);
   });
-
-  recalcWorkOrder(order);
-  await order.save();
-  return populateOrder(order._id);
+  return populateOrder(orderId);
 }
 
 export async function removeServiceFromWorkOrder(orderId, serviceItemId) {
-  const order = await WorkOrder.findById(orderId);
-  if (!order) throw httpError(404, 'OS não encontrada');
-  assertWorkOrderOpen(order, 'remover serviço');
-  const item = order.services.id(serviceItemId);
-  if (!item) throw httpError(404, 'Serviço não encontrado nesta OS');
-  item.deleteOne();
-  recalcWorkOrder(order);
-  await order.save();
-  return populateOrder(order._id);
+  await runInTransaction(async (session) => {
+    const order = await loadOrder(orderId, session);
+    assertWorkOrderOpen(order, 'remover serviço');
+    const item = order.services.id(serviceItemId);
+    if (!item) throw httpError(404, 'Serviço não encontrado nesta OS');
+    item.deleteOne();
+    recalcWorkOrder(order);
+    await persistOrder(order, session);
+  });
+  return populateOrder(orderId);
 }
 
 export async function updateWorkOrder(orderId, patch, operator = 'oficina') {
@@ -194,80 +257,119 @@ export async function updateWorkOrder(orderId, patch, operator = 'oficina') {
     return cancelWorkOrder(orderId, operator);
   }
 
-  const order = await WorkOrder.findById(orderId);
-  if (!order) throw httpError(404, 'OS não encontrada');
+  let becameReady = false;
 
-  const nextStatus = patch.status;
-  const statusChanged = Boolean(nextStatus) && nextStatus !== order.status;
-  if (statusChanged) assertWorkOrderTransition(order.status, nextStatus);
+  await runInTransaction(async (session) => {
+    const order = await loadOrder(orderId, session);
 
-  const previousStatus = order.status;
-  const allowed = [
-    'complaint',
-    'diagnosis',
-    'mechanic',
-    'notes',
-    'discount',
-    'status',
-    'scheduledAt',
-    'scheduleKind',
-  ];
-  for (const key of allowed) {
-    if (patch[key] !== undefined) order[key] = patch[key];
-  }
-  if (patch.scheduledAt === '') order.scheduledAt = null;
+    const nextStatus = patch.status;
+    const statusChanged = Boolean(nextStatus) && nextStatus !== order.status;
+    if (statusChanged) assertWorkOrderTransition(order.status, nextStatus);
 
-  if (statusChanged && nextStatus === 'entregue') {
-    if (order.paidAmount < order.total) {
-      throw httpError(400, 'A OS precisa estar paga para ser entregue');
+    const previousStatus = order.status;
+    const allowed = [
+      'complaint',
+      'diagnosis',
+      'mechanic',
+      'notes',
+      'discount',
+      'status',
+      'scheduledAt',
+      'scheduleKind',
+    ];
+    for (const key of allowed) {
+      if (patch[key] !== undefined) order[key] = patch[key];
     }
-    order.deliveredAt = new Date();
+    if (patch.scheduledAt === '') order.scheduledAt = null;
+
+    if (statusChanged && nextStatus === 'entregue') {
+      recalcWorkOrder(order);
+      if (order.paidAmount < order.total) {
+        throw httpError(400, 'A OS precisa estar paga para ser entregue');
+      }
+      order.deliveredAt = new Date();
+    }
+
+    if (statusChanged && WORK_ORDER_RESERVE_STATUSES.includes(nextStatus)) {
+      await reserveQuotedParts(order, operator, session);
+    }
+
+    if (statusChanged && CONSUME_STATUSES.has(nextStatus)) {
+      await consumeReservedParts(order, operator, session);
+    }
+
+    if (statusChanged && nextStatus === 'aguardando_pecas' && previousStatus !== 'aguardando_pecas') {
+      order.partsWaitingSince = new Date();
+      order.partsStaleNotifiedAt = null;
+    }
+    if (statusChanged && nextStatus !== 'aguardando_pecas') {
+      order.partsWaitingSince = null;
+    }
+
+    if (statusChanged && nextStatus === 'pronta' && !order.readyAt) order.readyAt = new Date();
+
+    recalcWorkOrder(order);
+    await persistOrder(order, session);
+    becameReady = order.status === 'pronta' && previousStatus !== 'pronta';
+  });
+
+  if (becameReady) {
+    enqueueJob('os.ready-notice', { orderId: String(orderId) });
   }
 
-  if (statusChanged && CONSUME_STATUSES.has(nextStatus)) {
-    await consumeReservedParts(order, operator);
-  }
-
-  if (statusChanged && nextStatus === 'pronta' && !order.readyAt) order.readyAt = new Date();
-
-  recalcWorkOrder(order);
-  await order.save();
-
-  if (order.status === 'pronta' && previousStatus !== 'pronta') {
-    await enqueueReadyNotice(order._id).catch((error) => {
-      console.error('Aviso OS pronta:', error.message);
-    });
-  }
-
-  return populateOrder(order._id);
+  return populateOrder(orderId);
 }
 
 export async function consumePartOnWorkOrder(orderId, partId, operator = 'oficina') {
-  const order = await WorkOrder.findById(orderId);
-  if (!order) throw httpError(404, 'OS não encontrada');
-  assertWorkOrderOpen(order, 'consumir peça');
-  const part = order.parts.id(partId);
-  if (!part) throw httpError(404, 'Peça não encontrada nesta OS');
-  if ((part.stockStatus || 'consumida') === 'consumida') return populateOrder(order._id);
+  await runInTransaction(async (session) => {
+    const order = await loadOrder(orderId, session);
+    assertWorkOrderOpen(order, 'consumir peça');
+    const part = order.parts.id(partId);
+    if (!part) throw httpError(404, 'Peça não encontrada nesta OS');
+    if ((part.stockStatus || 'consumida') === 'consumida') return;
+    if (part.stockStatus === 'orcamento') {
+      throw httpError(400, 'Peça ainda no orçamento. Aprove a OS (aguardando peças ou em serviço) para reservar.');
+    }
 
-  const { movement } = await consumeReservation({
-    productId: part.product,
-    quantity: part.quantity,
-    referenceType: 'workOrder',
-    referenceId: order._id,
-    notes: `Consumo OS ${order.number} — ${part.name}`,
-    operator,
-    unitCost: part.unitCost,
-    unitPrice: part.unitPrice,
+    const { movement } = await consumeReservation({
+      productId: part.product,
+      quantity: part.quantity,
+      referenceType: 'workOrder',
+      referenceId: order._id,
+      notes: `Consumo OS ${order.number} — ${part.name}`,
+      operator,
+      unitCost: part.unitCost,
+      unitPrice: part.unitPrice,
+      session,
+    });
+
+    part.stockStatus = 'consumida';
+    part.stockMovement = movement._id;
+    await persistOrder(order, session);
   });
-
-  part.stockStatus = 'consumida';
-  part.stockMovement = movement._id;
-  await order.save();
-  return populateOrder(order._id);
+  return populateOrder(orderId);
 }
 
-async function consumeReservedParts(order, operator) {
+async function reserveQuotedParts(order, operator, session = null) {
+  for (const part of order.parts) {
+    if (part.stockStatus !== 'orcamento') continue;
+    const { movement } = await reserveStock({
+      productId: part.product,
+      quantity: part.quantity,
+      referenceType: 'workOrder',
+      referenceId: order._id,
+      notes: `Reserva OS ${order.number} — ${part.name}`,
+      operator,
+      unitCost: part.unitCost,
+      unitPrice: part.unitPrice,
+      session,
+    });
+    part.stockStatus = 'reservada';
+    part.stockMovement = movement._id;
+  }
+}
+
+async function consumeReservedParts(order, operator, session = null) {
   for (const part of order.parts) {
     if ((part.stockStatus || 'consumida') !== 'reservada') continue;
     const { movement } = await consumeReservation({
@@ -279,6 +381,7 @@ async function consumeReservedParts(order, operator) {
       operator,
       unitCost: part.unitCost,
       unitPrice: part.unitPrice,
+      session,
     });
     part.stockStatus = 'consumida';
     part.stockMovement = movement._id;
@@ -286,33 +389,44 @@ async function consumeReservedParts(order, operator) {
 }
 
 export async function addPaymentToWorkOrder(orderId, payment) {
-  const order = await WorkOrder.findById(orderId);
-  if (!order) throw httpError(404, 'OS não encontrada');
-  assertWorkOrderOpen(order, 'registrar pagamento');
-  assertCents(payment.amount, 'pagamento da OS');
-  if ((payment.status || 'aprovado') === 'aprovado') await requireOpenRegister();
+  let becamePaid = false;
+  await runInTransaction(async (session) => {
+    const order = await loadOrder(orderId, session);
+    assertWorkOrderOpen(order, 'registrar pagamento');
+    assertCents(payment.amount, 'pagamento da OS');
+    const status = payment.status || 'aprovado';
+    if (status === 'aprovado') await requireOpenRegister(session);
 
-  order.payments.push({
-    method: payment.method,
-    amount: payment.amount,
-    status: payment.status || 'aprovado',
-    mercadoPagoId: payment.mercadoPagoId || '',
-  });
+    recalcWorkOrder(order);
+    const beforePaid = order.paidAmount;
+    if (status === 'aprovado' && addCents(order.paidAmount, payment.amount) > order.total) {
+      throw httpError(400, PAYMENT_EXCEEDS_TOTAL_MESSAGE);
+    }
 
-  recalcWorkOrder(order);
-  await order.save();
-
-  if ((payment.status || 'aprovado') === 'aprovado') {
-    await registerLedgerMovement({
-      type: 'os',
+    order.payments.push({
       method: payment.method,
       amount: payment.amount,
-      notes: `OS ${order.number}`,
-      referenceId: order._id,
+      status,
+      mercadoPagoId: payment.mercadoPagoId || '',
     });
-  }
 
-  return populateOrder(order._id);
+    recalcWorkOrder(order);
+    await persistOrder(order, session);
+
+    if (status === 'aprovado') {
+      await registerLedgerMovement({
+        type: 'os',
+        method: payment.method,
+        amount: payment.amount,
+        notes: `OS ${order.number}`,
+        referenceId: order._id,
+        session,
+      });
+      becamePaid = beforePaid < order.total && order.paidAmount >= order.total && order.total > 0;
+    }
+  });
+  if (becamePaid) enqueueJob('os.paid-notice', { orderId: String(orderId) });
+  return populateOrder(orderId);
 }
 
 function hasApprovedLedgerPayment(order) {
@@ -322,16 +436,16 @@ function hasApprovedLedgerPayment(order) {
 }
 
 export async function cancelWorkOrder(orderId, operator = 'oficina') {
-  const order = await runInTransaction(async (session) => {
-    const current = await WorkOrder.findById(orderId).session(session || undefined);
-    if (!current) throw httpError(404, 'OS não encontrada');
-    if (current.status === 'cancelada') return current;
+  await runInTransaction(async (session) => {
+    const current = await loadOrder(orderId, session);
+    if (current.status === 'cancelada') return;
     if (current.status === 'entregue') throw httpError(400, 'OS entregue não pode ser cancelada');
 
     const needsReversal = hasApprovedLedgerPayment(current);
     if (needsReversal) await requireOpenRegister(session);
 
     for (const part of current.parts) {
+      if ((part.stockStatus || 'consumida') === 'orcamento') continue;
       if ((part.stockStatus || 'consumida') === 'reservada') {
         await releaseReservation({
           productId: part.product,
@@ -362,13 +476,79 @@ export async function cancelWorkOrder(orderId, operator = 'oficina') {
     }
 
     current.status = 'cancelada';
-    await current.save({ session: session || undefined });
+    await persistOrder(current, session);
 
     if (needsReversal) await reverseLedgerForReference(current._id, session);
-    return current;
   });
 
-  return populateOrder(order._id);
+  const cancelled = await populateOrder(orderId);
+  if (hasApprovedLedgerPayment(cancelled)) {
+    await recordAudit({
+      action: 'workOrder.cancelled_paid',
+      actor: { login: operator },
+      meta: { orderId: String(orderId), number: cancelled.number, paidAmount: cancelled.paidAmount },
+    });
+  }
+  return cancelled;
+}
+
+export async function listWorkOrderBoard({ limit = 40 } = {}) {
+  const cap = listLimit(limit, 40);
+  const [countRows, ...lists] = await Promise.all([
+    WorkOrder.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
+    ...WORK_ORDER_KANBAN_STATUSES.map((status) =>
+      WorkOrder.find({ status })
+        .populate('customer')
+        .populate('bike')
+        .sort({ updatedAt: -1 })
+        .limit(cap),
+    ),
+  ]);
+
+  const counts = {};
+  for (const status of WORK_ORDER_KANBAN_STATUSES) counts[status] = 0;
+  for (const row of countRows) counts[row._id] = row.count;
+
+  const columns = {};
+  WORK_ORDER_KANBAN_STATUSES.forEach((status, index) => {
+    columns[status] = lists[index];
+  });
+
+  return { counts, columns };
+}
+
+export async function workshopStatusCounts() {
+  const rows = await WorkOrder.aggregate([
+    { $match: { status: { $nin: ['entregue', 'cancelada'] } } },
+    { $group: { _id: '$status', count: { $sum: 1 } } },
+  ]);
+  const statusCount = {
+    aberta: 0,
+    diagnostico: 0,
+    orcamento: 0,
+    aguardando_pecas: 0,
+    em_servico: 0,
+    pronta: 0,
+  };
+  let openOrderCount = 0;
+  for (const row of rows) {
+    if (statusCount[row._id] !== undefined) statusCount[row._id] = row.count;
+    openOrderCount += row.count;
+  }
+  return { statusCount, openOrderCount };
+}
+
+export async function listStaleWaitingParts(days = 3) {
+  const waitDays = Math.min(Math.max(Number(days) || 3, 1), 30);
+  const cutoff = new Date(Date.now() - waitDays * 24 * 60 * 60 * 1000);
+  return WorkOrder.find({
+    status: 'aguardando_pecas',
+    $or: [{ partsWaitingSince: { $lte: cutoff } }, { partsWaitingSince: null, updatedAt: { $lte: cutoff } }],
+  })
+    .populate('customer')
+    .populate('bike')
+    .sort({ partsWaitingSince: 1, updatedAt: 1 })
+    .limit(80);
 }
 
 export function populateOrder(id) {

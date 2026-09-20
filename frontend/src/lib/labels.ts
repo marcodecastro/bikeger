@@ -1,6 +1,7 @@
 export const OS_STATUS: Record<string, string> = {
   aberta: 'Aberta',
   diagnostico: 'Diagnóstico',
+  orcamento: 'Orçamento',
   aguardando_pecas: 'Aguardando peças',
   em_servico: 'Em serviço',
   pronta: 'Pronta',
@@ -11,6 +12,7 @@ export const OS_STATUS: Record<string, string> = {
 export const OS_FLOW = [
   'aberta',
   'diagnostico',
+  'orcamento',
   'aguardando_pecas',
   'em_servico',
   'pronta',
@@ -27,7 +29,9 @@ export function isOsTerminal(status: string) {
 
 export function allowedOsStatuses(from: string) {
   if (isOsTerminal(from)) return [from];
-  return Object.keys(OS_STATUS);
+  const open = OS_FLOW.filter((status) => status !== 'entregue');
+  if (from === 'pronta') return [...open, 'cancelada', 'entregue'];
+  return [...open, 'cancelada'];
 }
 
 export const PAYMENT_METHODS: Record<string, string> = {

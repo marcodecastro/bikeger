@@ -37,7 +37,7 @@ describe('PDV', () => {
     get.mockReset();
     post.mockReset();
     get.mockImplementation(async (path: string) => {
-      if (path === '/customers') return [];
+      if (path === '/customers' || path.startsWith('/customers?')) return [];
       if (path === '/cash/current') return { _id: 'caixa1', status: 'aberto', expectedCash: 0 };
       if (path.startsWith('/products?')) return [product];
       if (path.includes('/receipt')) {
@@ -54,7 +54,7 @@ describe('PDV', () => {
 
   it('adiciona peça, mostra total e finaliza a venda', async () => {
     const user = userEvent.setup();
-    post.mockResolvedValue({ _id: 'sale1' });
+    post.mockResolvedValue({ _id: 'sale1', status: 'paga' });
     render(<Pos />);
 
     await user.type(screen.getByPlaceholderText('SKU, código ou nome'), 'corrente');
@@ -63,12 +63,14 @@ describe('PDV', () => {
 
     expect(screen.getByText('Corrente SRAM')).toBeInTheDocument();
     expect(screen.getAllByText('R$ 159,90').length).toBeGreaterThan(0);
+    await user.selectOptions(screen.getByLabelText('Pagamento'), 'dinheiro');
     await user.click(screen.getByRole('button', { name: 'Finalizar e imprimir' }));
 
     expect(post).toHaveBeenCalledWith(
       '/sales',
       expect.objectContaining({
         items: [{ product: 'p1', quantity: 1, unitPrice: 15990 }],
+        payments: [{ method: 'dinheiro', amount: 15990 }],
       }),
     );
   });
@@ -83,16 +85,16 @@ describe('PDV', () => {
     render(<Pos />);
 
     expect(await screen.findByText(/abra o caixa para finalizar/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Finalizar e imprimir' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Finalizar e gerar PIX' })).toBeDisabled();
     expect(post).not.toHaveBeenCalled();
   });
 
   it('não dispara duas vendas no clique duplo', async () => {
     const user = userEvent.setup();
-    let resolveSale: ((value: { _id: string }) => void) | undefined;
+    let resolveSale: ((value: { _id: string; status: string }) => void) | undefined;
     post.mockImplementation((path: string) => {
       if (path === '/sales') {
-        return new Promise<{ _id: string }>((resolve) => {
+        return new Promise<{ _id: string; status: string }>((resolve) => {
           resolveSale = resolve;
         });
       }
@@ -102,6 +104,7 @@ describe('PDV', () => {
 
     await user.type(screen.getByPlaceholderText('SKU, código ou nome'), 'corrente');
     await user.click(await screen.findByRole('button', { name: 'Adicionar' }));
+    await user.selectOptions(screen.getByLabelText('Pagamento'), 'dinheiro');
 
     const finish = screen.getByRole('button', { name: 'Finalizar e imprimir' });
     fireEvent.click(finish);
@@ -109,7 +112,7 @@ describe('PDV', () => {
 
     expect(post.mock.calls.filter((call) => call[0] === '/sales')).toHaveLength(1);
     expect(finish).toBeDisabled();
-    resolveSale?.({ _id: 'sale1' });
+    resolveSale?.({ _id: 'sale1', status: 'paga' });
     expect(await screen.findByText('CUPOM')).toBeInTheDocument();
   });
 });

@@ -4,13 +4,15 @@ import { get } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { CATEGORIES } from '../lib/labels';
 import { formatBRL } from '../lib/money';
-import type { Product } from '../types';
+import type { Product, ShelfLabel } from '../types';
+import { ReceiptModal } from '../components/ReceiptModal';
 
 export function Products() {
   const { can } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [q, setQ] = useState('');
   const [category, setCategory] = useState('');
+  const [label, setLabel] = useState<ShelfLabel | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -34,7 +36,7 @@ export function Products() {
       </div>
 
       <div className="row" style={{ marginBottom: 16 }}>
-        <label className="field" style={{ minWidth: 240 }}>
+        <label className="field field-grow">
           Buscar
           <input value={q} onChange={(event) => setQ(event.target.value)} />
         </label>
@@ -80,13 +82,23 @@ export function Products() {
                 {can('sales') ? <td className="money">{formatBRL(product.costPrice ?? 0)}</td> : null}
                 <td className="money">{formatBRL(product.salePrice)}</td>
                 <td>
-                  <Link to={`/produtos/${product._id}`}>Abrir</Link>
+                  <div className="row">
+                    <Link to={`/produtos/${product._id}`}>Abrir</Link>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => void get<ShelfLabel>(`/products/${product._id}/label`).then(setLabel)}
+                    >
+                      Etiqueta
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </article>
+      {label ? <ReceiptModal receipt={label} title="Etiqueta 40×30" onClose={() => setLabel(null)} /> : null}
     </section>
   );
 }

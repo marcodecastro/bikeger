@@ -1,3 +1,5 @@
+import ROLE_CAPABILITIES from '../../../shared/role-capabilities.json';
+
 export type Role = 'dono' | 'balcao' | 'mecanico';
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -12,40 +14,12 @@ export const ROLE_BLURBS: Record<Role, string> = {
   mecanico: 'Oficina, peças na OS e histórico da bike.',
 };
 
-const CAPS: Record<Role, string[]> = {
-  dono: ['*'],
-  balcao: [
-    'dashboard',
-    'pos',
-    'sales',
-    'workshop',
-    'agenda',
-    'products.read',
-    'stock.read',
-    'customers',
-    'bikes',
-    'services.read',
-    'cash',
-    'payments',
-    'search',
-  ],
-  mecanico: [
-    'dashboard',
-    'workshop',
-    'agenda',
-    'products.read',
-    'stock.read',
-    'customers.read',
-    'bikes',
-    'services.read',
-    'search',
-  ],
-};
+export const ROLE_CAPABILITIES_CONTRACT = ROLE_CAPABILITIES;
 
 export function capabilitiesFor(role: Role | undefined): string[] {
   if (!role) return [];
   if (role === 'dono') return ['*'];
-  return [...(CAPS[role] || [])];
+  return [...(ROLE_CAPABILITIES[role] || [])];
 }
 
 export function can(role: Role | undefined, capability: string, granted?: string[]): boolean {

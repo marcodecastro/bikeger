@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { accumulateByCategory, lineMargin } from '../src/utils/margin.js';
-import { buildReadyMessage, phoneToWhatsApp, whatsappUrl } from '../src/utils/notify.js';
+import { buildOsNoticeMessage, buildReadyMessage, phoneToWhatsApp, whatsappUrl } from '../src/utils/notify.js';
 import { sendWhatsAppCloud, whatsappCloudConfig } from '../src/utils/whatsappCloud.js';
 import { dateKey, weekFrom } from '../src/services/agendaService.js';
 
@@ -47,6 +47,37 @@ test('texto do aviso troca nome, bike, OS e loja', () => {
     number: 'OS-00012',
   });
   assert.equal(text, 'Ana, a Caloi 10 da OS OS-00012 está pronta na BikeGer.');
+});
+
+test('templates de abertura e paga usam os mesmos placeholders', () => {
+  const opened = buildOsNoticeMessage({
+    template: '{nome}, a {bike} entrou na oficina ({os}) na {loja}.',
+    storeName: 'BikeGer',
+    customerName: 'Ana',
+    bikeLabel: 'Caloi 10',
+    number: 'OS-00012',
+  });
+  const paid = buildOsNoticeMessage({
+    template: '{nome}, a {bike} da OS {os} já está paga e pode retirar na {loja}.',
+    storeName: 'BikeGer',
+    customerName: 'Ana',
+    bikeLabel: 'Caloi 10',
+    number: 'OS-00012',
+  });
+  assert.equal(opened, 'Ana, a Caloi 10 entrou na oficina (OS-00012) na BikeGer.');
+  assert.equal(paid, 'Ana, a Caloi 10 da OS OS-00012 já está paga e pode retirar na BikeGer.');
+});
+
+test('orçamento coloca o valor em reais no texto', () => {
+  const text = buildOsNoticeMessage({
+    template: '{nome}, o orçamento da {bike} na OS {os} ficou em {valor}. Pode fazer? {loja}',
+    storeName: 'BikeGer',
+    customerName: 'Maria',
+    bikeLabel: 'Caloi Elite',
+    number: 'OS-00042',
+    amountLabel: 'R$ 249,80',
+  });
+  assert.equal(text, 'Maria, o orçamento da Caloi Elite na OS OS-00042 ficou em R$ 249,80. Pode fazer? BikeGer');
 });
 
 test('Cloud API usa token do .env se os dois existirem', () => {

@@ -13,9 +13,12 @@ import {
   cancelWorkOrder,
   consumePartOnWorkOrder,
   createWorkOrder,
+  persistWorkOrder,
   updateWorkOrder,
+  WORK_ORDER_CONFLICT_MESSAGE,
 } from '../src/services/workOrderService.js';
 import { ensureOpenRegister } from './helpers/openCash.js';
+import { flushJobs } from '../src/utils/jobs.js';
 
 const uri = process.env.MONGODB_TEST_URI || 'mongodb://127.0.0.1:27017/bikeger_test';
 
@@ -24,6 +27,7 @@ before(async () => {
 });
 
 after(async () => {
+  await flushJobs();
   await mongoose.disconnect();
 });
 
@@ -152,7 +156,8 @@ test('cancelar de novo a mesma OS é idempotente e não mexe no estoque', async 
 
 test('cancelar OS paga lança estorno no livro e não duplica na segunda vez', async () => {
   await ensureOpenRegister();
-  const { order } = await makeOrder('A2-PIX', 1);
+  const { product, order } = await makeOrder('A2-PIX', 1);
+  await addPartToWorkOrder(order._id, { productId: product._id, quantity: 1, unitPrice: 8000 });
   await addPaymentToWorkOrder(order._id, { method: 'pix', amount: 8000 });
 
   const cancelled = await cancelWorkOrder(order._id, 'teste');
@@ -173,7 +178,8 @@ test('cancelar OS paga lança estorno no livro e não duplica na segunda vez', a
 
 test('PATCH status=cancelada também estorna dinheiro no caixa', async () => {
   await ensureOpenRegister();
-  const { order } = await makeOrder('A2-PATCH', 1);
+  const { product, order } = await makeOrder('A2-PATCH', 1);
+  await addPartToWorkOrder(order._id, { productId: product._id, quantity: 1, unitPrice: 2500 });
   await addPaymentToWorkOrder(order._id, { method: 'dinheiro', amount: 2500 });
 
   await updateWorkOrder(order._id, { status: 'cancelada' }, 'teste');
@@ -244,6 +250,21 @@ test('OS nova não nasce entregue', async () => {
       }),
     /não pode nascer encerrada/,
   );
+});
+
+test('persist da OS com __v velho devolve 409', async () => {
+  const { order } = await makeOrder('VER', 1);
+  const stale = await WorkOrder.findById(order._id);
+  const fresh = await WorkOrder.findById(order._id);
+  fresh.complaint = 'atual';
+  await persistWorkOrder(fresh);
+  stale.complaint = 'stale';
+  await assert.rejects(
+    () => persistWorkOrder(stale),
+    (error) => error.status === 409 && error.message === WORK_ORDER_CONFLICT_MESSAGE,
+  );
+  const after = await WorkOrder.findById(order._id);
+  assert.equal(after.complaint, 'atual');
 });
 
 

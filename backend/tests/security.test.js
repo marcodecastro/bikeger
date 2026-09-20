@@ -1,20 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import jwt from 'jsonwebtoken';
 import {
   assertBootConfig,
   assertFrontendUrl,
   assertJwtConfig,
   assertSeedAllowed,
+  API_PUBLIC_URL_REQUIRED_MESSAGE,
+  assertReplicaSet,
+  REPLICA_SET_REQUIRED_MESSAGE,
   checkoutBackUrls,
   corsOrigin,
   DEV_FRONTEND_ORIGIN,
   FRONTEND_URL_REQUIRED_MESSAGE,
   paymentReturnUrl,
+  publicApiUrl,
   redactMongoUri,
   SEED_BLOCKED_MESSAGE,
   shouldSeedDemoUsers,
   tokenSecret,
 } from '../src/utils/security.js';
+import { verifyAccessToken } from '../src/middleware/auth.js';
 
 test('produção recusa JWT de exemplo e não cria senha bikeger', () => {
   const previousEnv = process.env.NODE_ENV;
@@ -71,6 +77,7 @@ test('produção recusa subir sem FRONTEND_URL', () => {
   const previousEnv = process.env.NODE_ENV;
   const previousSecret = process.env.JWT_SECRET;
   const previousOrigin = process.env.FRONTEND_URL;
+  const previousApi = process.env.API_PUBLIC_URL;
   process.env.NODE_ENV = 'production';
   process.env.JWT_SECRET = 'chave-longa-aleatoria-de-producao-bikeger';
   process.env.FRONTEND_URL = '';
@@ -82,12 +89,21 @@ test('produção recusa subir sem FRONTEND_URL', () => {
   assert.throws(() => assertFrontendUrl(), /FRONTEND_URL é obrigatório/);
 
   process.env.FRONTEND_URL = 'https://loja.bikeger.local';
+  process.env.API_PUBLIC_URL = '';
+  assert.throws(() => assertBootConfig(), /API_PUBLIC_URL é obrigatório/);
+  assert.throws(() => publicApiUrl(), (error) => error.message === API_PUBLIC_URL_REQUIRED_MESSAGE);
+
+  process.env.API_PUBLIC_URL = 'http://localhost:4000';
+  assert.throws(() => assertBootConfig(), /API_PUBLIC_URL é obrigatório/);
+
+  process.env.API_PUBLIC_URL = 'https://api.bikeger.local';
   assert.doesNotThrow(() => assertBootConfig());
   assert.equal(corsOrigin(), 'https://loja.bikeger.local');
 
   process.env.NODE_ENV = previousEnv;
   process.env.JWT_SECRET = previousSecret;
   process.env.FRONTEND_URL = previousOrigin;
+  process.env.API_PUBLIC_URL = previousApi;
 });
 
 test('desenvolvimento não abre CORS para qualquer origem', () => {
@@ -111,6 +127,19 @@ test('desenvolvimento não abre CORS para qualquer origem', () => {
   process.env.FRONTEND_URL = previousOrigin;
 });
 
+test('produção recusa Mongo standalone, no mesmo espírito do API_PUBLIC_URL', () => {
+  const previousEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  assert.throws(
+    () => assertReplicaSet({ transactions: false }),
+    (error) => error.message === REPLICA_SET_REQUIRED_MESSAGE,
+  );
+  assert.doesNotThrow(() => assertReplicaSet({ transactions: true, setName: 'rs0' }));
+  process.env.NODE_ENV = 'development';
+  assert.doesNotThrow(() => assertReplicaSet({ transactions: false }));
+  process.env.NODE_ENV = previousEnv;
+});
+
 test('URI Mongo com senha some do log', () => {
   assert.equal(
     redactMongoUri('mongodb://marco:segredo@127.0.0.1:27017/bikeger'),
@@ -128,4 +157,14 @@ test('URI Mongo com senha some do log', () => {
     redactMongoUri('Falha: mongodb://u:p@host:27017/bikeger ECONNREFUSED'),
     /mongodb:\/\/\*\*\*@host:27017\/bikeger/,
   );
+});
+
+test('jwt.verify recusa alg none e só aceita HS256', () => {
+  const previousEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'development';
+  const none = [Buffer.from('{"alg":"none","typ":"JWT"}').toString('base64url'), Buffer.from('{"sub":"x"}').toString('base64url'), ''].join('.');
+  assert.throws(() => verifyAccessToken(none));
+  const token = jwt.sign({ sub: 'ok' }, tokenSecret(), { algorithm: 'HS256' });
+  assert.equal(verifyAccessToken(token).sub, 'ok');
+  process.env.NODE_ENV = previousEnv;
 });

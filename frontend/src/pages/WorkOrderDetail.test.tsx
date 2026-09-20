@@ -275,6 +275,75 @@ describe('OS pronta', () => {
     });
     expect(await screen.findByText(/nenhum caixa aberto/i)).toBeInTheDocument();
   });
+
+  it('restaura o diagnóstico se o PATCH falhar', async () => {
+    const user = userEvent.setup();
+    can.mockReturnValue(false);
+    patch.mockRejectedValue(new Error('Falha ao salvar a OS'));
+
+    render(
+      <MemoryRouter initialEntries={['/oficina/os1']}>
+        <Routes>
+          <Route path="/oficina/:id" element={<WorkOrderDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const diagnosis = await screen.findByLabelText('Diagnóstico');
+    await user.clear(diagnosis);
+    await user.type(diagnosis, 'texto novo');
+    fireEvent.blur(diagnosis);
+
+    expect(await screen.findByText(/Falha ao salvar a OS/)).toBeInTheDocument();
+    expect(diagnosis).toHaveValue('Cabo');
+  });
+});
+
+describe('OS em diagnóstico', () => {
+  beforeEach(() => {
+    get.mockReset();
+    post.mockReset();
+    patch.mockReset();
+    del.mockReset();
+    can.mockReset();
+    get.mockImplementation(async (path: string) => {
+      if (path === '/work-orders/os1') return { ...order, status: 'diagnostico', total: 24980 };
+      if (path.startsWith('/products')) return [];
+      if (path.startsWith('/services')) return [];
+      return [];
+    });
+  });
+
+  it('envia o orçamento no WhatsApp sem o botão de reservar estoque', async () => {
+    const user = userEvent.setup();
+    can.mockReturnValue(true);
+    post.mockImplementation(async (path: string) => {
+      if (path === '/notifications/work-orders/os1/quote') {
+        return { _id: 'n1', waUrl: 'https://wa.me/5511988880000', status: 'pendente' };
+      }
+      if (path === '/notifications/n1/sent') return { _id: 'n1', status: 'enviado' };
+      return { ...order, status: 'orcamento' };
+    });
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+    render(
+      <MemoryRouter initialEntries={['/oficina/os1']}>
+        <Routes>
+          <Route path="/oficina/:id" element={<WorkOrderDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Enviar orçamento' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Incluir no orçamento' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reservar peça' })).not.toBeInTheDocument();
+    expect(screen.getByText(/orçamento, sem reservar/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Enviar orçamento' }));
+    expect(post).toHaveBeenCalledWith('/notifications/work-orders/os1/quote');
+    expect(open).toHaveBeenCalledWith('https://wa.me/5511988880000', '_blank');
+    open.mockRestore();
+  });
 });
 
 describe('OS entregue', () => {

@@ -3,8 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { get, post, put } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { CATEGORIES, UNITS } from '../lib/labels';
-import type { Product, Supplier } from '../types';
+import type { Product, Supplier, ShelfLabel } from '../types';
 import { MoneyInput } from '../components/MoneyInput';
+import { ReceiptModal } from '../components/ReceiptModal';
 
 interface FormState {
   sku: string;
@@ -56,6 +57,7 @@ export function ProductForm() {
   const [form, setForm] = useState<FormState>(empty);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [error, setError] = useState('');
+  const [label, setLabel] = useState<ShelfLabel | null>(null);
   const isNew = !id || id === 'novo';
 
   useEffect(() => {
@@ -231,10 +233,28 @@ export function ProductForm() {
             <button type="button" className="btn btn-primary" onClick={() => void save()}>
               Salvar
             </button>
+            {!isNew ? (
+              <button
+                type="button"
+                className="btn"
+                onClick={() => void get<ShelfLabel>(`/products/${id}/label`).then(setLabel)}
+              >
+                Etiqueta 40×30
+              </button>
+            ) : null}
           </div>
+        ) : !isNew ? (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => void get<ShelfLabel>(`/products/${id}/label`).then(setLabel)}
+          >
+            Etiqueta 40×30
+          </button>
         ) : null}
         </fieldset>
       </article>
+      {label ? <ReceiptModal receipt={label} title="Etiqueta 40×30" onClose={() => setLabel(null)} /> : null}
     </section>
   );
 }

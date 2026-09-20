@@ -37,6 +37,22 @@ test('produção esconde detalhe do 500 e mantém mensagem do 409', () => {
   assert.equal(res409.statusCode, 409);
   assert.equal(res409.body.message, closed.message);
 
+  const cast = new Error('Cast to ObjectId failed');
+  cast.name = 'CastError';
+  const res400 = mockRes();
+  errorHandler(cast, { id: 'req-cast' }, res400, () => undefined);
+  assert.equal(res400.statusCode, 400);
+  assert.equal(res400.body.message, 'Identificador inválido');
+  assert.equal(res400.body.requestId, 'req-cast');
+
+  const validation = new Error('WorkOrder validation failed');
+  validation.name = 'ValidationError';
+  validation.errors = { status: { message: 'status inválido' } };
+  const resValidation = mockRes();
+  errorHandler(validation, { id: 'req-val' }, resValidation, () => undefined);
+  assert.equal(resValidation.statusCode, 400);
+  assert.equal(resValidation.body.message, 'status inválido');
+
   console.error = previousError;
   process.env.NODE_ENV = previousEnv;
 });
