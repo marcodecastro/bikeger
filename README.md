@@ -52,7 +52,7 @@ Copie `backend/.env.example` para `backend/.env`. Em produção estes valores s�
 | `MP_WEBHOOK_SECRET` | HMAC das notificações do Mercado Pago. |
 | `FOCUS_NFE_TOKEN` | Emissão NFC-e (opcional). Em produção o token não é gravado nos Ajustes. |
 
-Backup diário (`mongodump`, 14 dias) e restore de teste: [docs/backup.md](docs/backup.md). NFC-e é opcional — deixe desligada em Ajustes se a loja não emite.
+Backup diário (arquivo `.json.gz`, 14 dias) e restore: [docs/backup.md](docs/backup.md). O dono também gera e restaura em Ajustes. NFC-e é opcional — deixe desligada em Ajustes se a loja não emite.
 
 Também use `MP_ACCESS_TOKEN` (e `WHATSAPP_TOKEN`, se for a Cloud API) no `.env` de produção.
 

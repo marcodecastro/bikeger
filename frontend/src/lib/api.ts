@@ -82,8 +82,8 @@ export function get<T>(path: string) {
   return request<T>(path);
 }
 
-export function post<T>(path: string, body?: unknown) {
-  return request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined });
+export function post<T>(path: string, body?: unknown, options?: RequestOptions) {
+  return request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined, ...options });
 }
 
 export function put<T>(path: string, body?: unknown) {
@@ -96,4 +96,67 @@ export function patch<T>(path: string, body?: unknown) {
 
 export function del<T>(path: string) {
   return request<T>(path, { method: 'DELETE' });
+}
+
+export const BACKUP_TIMEOUT_MS = 120_000;
+
+export async function downloadFile(path: string, filename: string) {
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}${path}`, {
+      headers: authHeader(),
+      signal: requestSignal(BACKUP_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (isTimeoutError(error)) throw new Error(REQUEST_TIMEOUT_MESSAGE);
+    throw error;
+  }
+
+  if (res.status === 401 && !path.startsWith('/auth/login')) {
+    window.dispatchEvent(new Event('bikeger:unauthorized'));
+  }
+
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new ApiError(data.message || 'Falha ao baixar o arquivo', res.status);
+  }
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export async function postBackupUpload<T>(file: File, confirm: string) {
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}/backups/restore-upload`, {
+      method: 'POST',
+      headers: {
+        ...authHeader(),
+        'Content-Type': file.type || 'application/gzip',
+        'X-Backup-Confirm': confirm,
+      },
+      body: file,
+      signal: requestSignal(BACKUP_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (isTimeoutError(error)) throw new Error(REQUEST_TIMEOUT_MESSAGE);
+    throw error;
+  }
+
+  if (res.status === 401) {
+    window.dispatchEvent(new Event('bikeger:unauthorized'));
+  }
+
+  const data = (await res.json().catch(() => ({}))) as { message?: string } & T;
+  if (!res.ok) {
+    throw new ApiError(data.message || 'Falha ao restaurar o backup', res.status);
+  }
+  return data;
 }

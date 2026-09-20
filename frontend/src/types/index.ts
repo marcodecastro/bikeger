@@ -289,6 +289,21 @@ export interface Settings {
   secretsFromEnv?: boolean;
 }
 
+export interface BackupFile {
+  name: string;
+  size: number;
+  createdAt: string;
+  kind: 'archive' | 'dump-dir';
+}
+
+export interface BackupStatus {
+  source: 'localhost' | 'cloud' | 'mongo';
+  ephemeral: boolean;
+  cloudUpload: boolean;
+  retentionDays: number;
+  backups: BackupFile[];
+}
+
 export interface FiscalDocument {
   _id: string;
   relatedType: string;

@@ -45,6 +45,7 @@ jobs:
           MONGODB_TEST_URI_PI: mongodb://127.0.0.1:27017/bikeger_ci_pi?replicaSet=rs0&directConnection=true
           MONGODB_TEST_URI_AZ: mongodb://127.0.0.1:27017/bikeger_ci_az?replicaSet=rs0&directConnection=true
           MONGODB_TEST_URI_P3: mongodb://127.0.0.1:27017/bikeger_ci_p3?replicaSet=rs0&directConnection=true
+          MONGODB_TEST_URI_BK: mongodb://127.0.0.1:27017/bikeger_ci_bk?replicaSet=rs0&directConnection=true
 
   frontend:
     runs-on: ubuntu-latest

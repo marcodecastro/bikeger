@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { get, put } from '../lib/api';
 import type { Settings } from '../types';
+import { BackupPanel } from '../components/BackupPanel';
 
 function previewNotice(template: string, storeName: string) {
   return template
@@ -133,6 +134,7 @@ export function SettingsPage() {
           <p>Loja, Mercado Pago e NFC-e. Em produção os tokens (MP, Focus, WhatsApp, CSC) ficam só no .env.</p>
         </div>
       </div>
+      <BackupPanel />
       <article className="card grid grid-2">
         <label className="field">
           Nome da loja

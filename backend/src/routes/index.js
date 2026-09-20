@@ -21,6 +21,7 @@ import { auditRouter } from './audit.js';
 import { purchasesRouter } from './purchases.js';
 import { inventoryRouter } from './inventory.js';
 import { reportsRouter } from './reports.js';
+import { backupsRouter } from './backups.js';
 import { requireAuth, requireCapability } from '../middleware/auth.js';
 
 export const router = Router();
@@ -50,3 +51,4 @@ router.use('/audit', requireCapability('audit'), auditRouter);
 router.use('/purchases', requireCapability('stock.write'), purchasesRouter);
 router.use('/inventory', requireCapability('stock.write'), inventoryRouter);
 router.use('/reports', requireCapability('audit'), reportsRouter);
+router.use('/backups', requireCapability('settings'), backupsRouter);
