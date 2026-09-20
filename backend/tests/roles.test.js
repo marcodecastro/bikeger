@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { can, capabilitiesFor, ROLE_CAPABILITIES_CONTRACT } from '../src/utils/roles.js';
-import sharedCaps from '../../shared/role-capabilities.json' with { type: 'json' };
+import sharedCaps from '../shared/role-capabilities.json' with { type: 'json' };
 
 test('dono recebe * e passa em qualquer capability', () => {
   assert.deepEqual(capabilitiesFor('dono'), ['*']);

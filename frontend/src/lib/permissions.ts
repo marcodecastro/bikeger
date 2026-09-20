@@ -1,4 +1,4 @@
-import ROLE_CAPABILITIES from '../../../shared/role-capabilities.json';
+import ROLE_CAPABILITIES from './role-capabilities.json';
 
 export type Role = 'dono' | 'balcao' | 'mecanico';
 

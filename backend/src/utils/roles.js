@@ -1,4 +1,4 @@
-import ROLE_CAPABILITIES from '../../../shared/role-capabilities.json' with { type: 'json' };
+import ROLE_CAPABILITIES from '../../shared/role-capabilities.json' with { type: 'json' };
 
 export const ROLES = ['dono', 'balcao', 'mecanico'];
 

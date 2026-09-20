@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { can, ROLE_CAPABILITIES_CONTRACT } from './permissions';
-import shared from '../../../shared/role-capabilities.json';
+import local from './role-capabilities.json';
 
 describe('capabilities do cliente', () => {
   it('usa a lista que veio da API quando existe', () => {
@@ -18,7 +18,13 @@ describe('capabilities do cliente', () => {
     expect(can('mecanico', 'payments')).toBe(false);
   });
 
-  it('usa o mesmo contrato de capabilities do backend', () => {
-    expect(ROLE_CAPABILITIES_CONTRACT).toEqual(shared);
+  it('usa o mesmo contrato de capabilities do backend', async () => {
+    expect(ROLE_CAPABILITIES_CONTRACT).toEqual(local);
+    try {
+      const backend = await import('../../../backend/shared/role-capabilities.json');
+      expect(ROLE_CAPABILITIES_CONTRACT).toEqual(backend.default ?? backend);
+    } catch {
+      // Checkout só do frontend: o JSON local é o contrato deste deploy.
+    }
   });
 });

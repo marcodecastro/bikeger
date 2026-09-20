@@ -1,0 +1,29 @@
+{
+  "dono": ["*"],
+  "balcao": [
+    "dashboard",
+    "pos",
+    "sales",
+    "workshop",
+    "agenda",
+    "products.read",
+    "stock.read",
+    "customers",
+    "bikes",
+    "services.read",
+    "cash",
+    "payments",
+    "search"
+  ],
+  "mecanico": [
+    "dashboard",
+    "workshop",
+    "agenda",
+    "products.read",
+    "stock.read",
+    "customers.read",
+    "bikes",
+    "services.read",
+    "search"
+  ]
+}
