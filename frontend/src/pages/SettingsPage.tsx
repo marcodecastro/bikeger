@@ -85,6 +85,7 @@ export function SettingsPage() {
   }
 
   async function save() {
+    if (!settings) return;
     try {
       setError('');
       setStatus('');

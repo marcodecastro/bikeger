@@ -56,6 +56,7 @@ export function CustomerDetail() {
   if (!data) return <section className="page">Carregando ficha...</section>;
 
   async function addBike() {
+    if (!data) return;
     try {
       setError('');
       if (!brand.trim() || !model.trim()) {
@@ -74,7 +75,7 @@ export function CustomerDetail() {
   }
 
   async function loadMore(kind: 'sales' | 'orders') {
-    if (!id || loadingMore) return;
+    if (!id || !data || loadingMore) return;
     try {
       setLoadingMore(kind);
       const salesLimit = kind === 'sales' ? data.sales.length + HISTORY_PAGE : Math.max(HISTORY_PAGE, data.sales.length);
