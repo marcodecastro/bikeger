@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addCartLine, cartTotals } from './cart';
+import { addCartLine, cartTotals, setCartLineQuantity } from './cart';
 
 const peca = {
   productId: 'p1',
@@ -25,5 +25,15 @@ describe('carrinho do PDV', () => {
     const overflow = addCartLine(second.lines, peca);
     expect(overflow.error).toMatch(/sem estoque livre/);
     expect(overflow.lines[0].quantity).toBe(2);
+  });
+
+  it('qty do PDV também respeita o estoque livre', () => {
+    const { lines } = addCartLine([], peca);
+    const overflow = setCartLineQuantity(lines, peca.productId, 9);
+    expect(overflow.error).toMatch(/sem estoque livre/);
+    expect(overflow.lines[0].quantity).toBe(1);
+    const ok = setCartLineQuantity(lines, peca.productId, 2);
+    expect(ok.error).toBeUndefined();
+    expect(ok.lines[0].quantity).toBe(2);
   });
 });

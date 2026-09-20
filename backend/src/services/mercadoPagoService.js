@@ -8,10 +8,12 @@ import { centsToMpAmount, mpAmountToCents, assertCents } from '../utils/money.js
 import { httpError } from '../utils/asyncHandler.js';
 import { checkoutBackUrls, isProduction, publicApiUrl } from '../utils/security.js';
 import { registerLedgerMovement, requireOpenRegister } from './cashService.js';
+import { CashMovement } from '../models/CashMovement.js';
 import { WORK_ORDER_TERMINAL_STATUSES } from '../utils/workOrderStatus.js';
 import { enqueueJob } from '../utils/jobs.js';
 import { log } from '../utils/logger.js';
 import { recordPaymentApplyFailed, resolvePaymentApplyFailed } from './paymentOutbox.js';
+import { runInTransaction } from '../utils/transaction.js';
 
 export const OPEN_CHARGE_STATUSES = ['pending', 'in_process'];
 
@@ -266,85 +268,150 @@ export async function processWebhookPayment(mpPaymentId, options) {
 export async function applyApprovedPayment(payment, remote) {
   const mpId = String(remote.id);
   assertCents(payment.amount, 'pagamento Mercado Pago');
-  await requireOpenRegister();
 
-  if (payment.relatedType === 'sale') {
-    const result = await Sale.updateOne(
-      {
-        _id: payment.relatedId,
-        'payments.mercadoPagoId': { $ne: mpId },
-        $expr: {
-          $lte: [{ $add: [{ $ifNull: ['$paidAmount', 0] }, payment.amount] }, '$total'],
-        },
-      },
-      {
-        $push: {
-          payments: {
-            _id: new mongoose.Types.ObjectId(),
-            method: 'mercado_pago',
-            amount: payment.amount,
-            status: 'aprovado',
-            mercadoPagoId: mpId,
-          },
-        },
-        $inc: { paidAmount: payment.amount },
-      },
-    );
-    if (result.modifiedCount === 0) return;
+  let nfceSaleId = null;
+  let paidNoticeOrderId = null;
 
-    const sale = await Sale.findById(payment.relatedId);
-    if (!sale) return;
-    if (sale.paidAmount >= sale.total) sale.status = 'paga';
-    await sale.save();
-    await registerLedgerMovement({
-      type: 'venda',
-      method: 'mercado_pago',
-      amount: payment.amount,
-      notes: `Venda ${sale.number}`,
-      referenceId: sale._id,
-    });
-    if (sale.status === 'paga') {
-      enqueueJob('nfce.enqueue', { relatedType: 'sale', relatedId: String(sale._id) });
+  await runInTransaction(async (session) => {
+    await requireOpenRegister(session);
+
+    if (payment.relatedType === 'sale') {
+      const outcome = await applySaleApproved(payment, mpId, session);
+      if (outcome?.becamePaid) nfceSaleId = String(outcome.sale._id);
+      return;
     }
-    return;
+
+    if (payment.relatedType === 'workOrder') {
+      const outcome = await applyWorkOrderApproved(payment, mpId, session);
+      if (outcome?.becamePaid) paidNoticeOrderId = String(outcome.order._id);
+    }
+  });
+
+  if (nfceSaleId) enqueueJob('nfce.enqueue', { relatedType: 'sale', relatedId: nfceSaleId });
+  if (paidNoticeOrderId) enqueueJob('os.paid-notice', { orderId: paidNoticeOrderId });
+}
+
+async function hasMpLedger(relatedId, amount, type, session) {
+  return CashMovement.exists({
+    referenceId: relatedId,
+    type,
+    method: 'mercado_pago',
+    amount,
+  }).session(session || undefined);
+}
+
+async function applySaleApproved(payment, mpId, session) {
+  const result = await Sale.updateOne(
+    {
+      _id: payment.relatedId,
+      'payments.mercadoPagoId': { $ne: mpId },
+      $expr: {
+        $lte: [{ $add: [{ $ifNull: ['$paidAmount', 0] }, payment.amount] }, '$total'],
+      },
+    },
+    {
+      $push: {
+        payments: {
+          _id: new mongoose.Types.ObjectId(),
+          method: 'mercado_pago',
+          amount: payment.amount,
+          status: 'aprovado',
+          mercadoPagoId: mpId,
+        },
+      },
+      $inc: { paidAmount: payment.amount },
+    },
+    { session: session || undefined },
+  );
+
+  const sale = await Sale.findById(payment.relatedId).session(session || undefined);
+  if (!sale) return null;
+
+  if (result.modifiedCount === 0) {
+    const already = (sale.payments || []).some((item) => item.mercadoPagoId === mpId);
+    if (!already) return null;
+    if (!(await hasMpLedger(sale._id, payment.amount, 'venda', session))) {
+      await registerLedgerMovement({
+        type: 'venda',
+        method: 'mercado_pago',
+        amount: payment.amount,
+        notes: `Venda ${sale.number}`,
+        referenceId: sale._id,
+        session,
+      });
+    }
+    return { sale, becamePaid: false };
   }
 
-  if (payment.relatedType === 'workOrder') {
-    const result = await WorkOrder.updateOne(
-      {
-        _id: payment.relatedId,
-        status: { $nin: WORK_ORDER_TERMINAL_STATUSES },
-        'payments.mercadoPagoId': { $ne: mpId },
-        $expr: {
-          $lte: [{ $add: [{ $ifNull: ['$paidAmount', 0] }, payment.amount] }, '$total'],
-        },
-      },
-      {
-        $push: {
-          payments: {
-            _id: new mongoose.Types.ObjectId(),
-            method: 'mercado_pago',
-            amount: payment.amount,
-            status: 'aprovado',
-            mercadoPagoId: mpId,
-          },
-        },
-        $inc: { paidAmount: payment.amount },
-      },
-    );
-    if (result.modifiedCount === 0) return;
-
-    const order = await WorkOrder.findById(payment.relatedId);
-    if (!order) return;
-    await registerLedgerMovement({
-      type: 'os',
-      method: 'mercado_pago',
-      amount: payment.amount,
-      notes: `OS ${order.number}`,
-      referenceId: order._id,
-    });
-    if (order.paidAmount >= order.total && order.total > 0) {
-      enqueueJob('os.paid-notice', { orderId: String(order._id) });
-    }
+  if (sale.paidAmount >= sale.total) {
+    sale.status = 'paga';
+    await sale.save({ session: session || undefined });
   }
+  await registerLedgerMovement({
+    type: 'venda',
+    method: 'mercado_pago',
+    amount: payment.amount,
+    notes: `Venda ${sale.number}`,
+    referenceId: sale._id,
+    session,
+  });
+  return { sale, becamePaid: sale.status === 'paga' };
+}
+
+async function applyWorkOrderApproved(payment, mpId, session) {
+  const result = await WorkOrder.updateOne(
+    {
+      _id: payment.relatedId,
+      status: { $nin: WORK_ORDER_TERMINAL_STATUSES },
+      'payments.mercadoPagoId': { $ne: mpId },
+      $expr: {
+        $lte: [{ $add: [{ $ifNull: ['$paidAmount', 0] }, payment.amount] }, '$total'],
+      },
+    },
+    {
+      $push: {
+        payments: {
+          _id: new mongoose.Types.ObjectId(),
+          method: 'mercado_pago',
+          amount: payment.amount,
+          status: 'aprovado',
+          mercadoPagoId: mpId,
+        },
+      },
+      $inc: { paidAmount: payment.amount },
+    },
+    { session: session || undefined },
+  );
+
+  const order = await WorkOrder.findById(payment.relatedId).session(session || undefined);
+  if (!order) return null;
+
+  if (result.modifiedCount === 0) {
+    const already = (order.payments || []).some((item) => item.mercadoPagoId === mpId);
+    if (!already) return null;
+    if (!(await hasMpLedger(order._id, payment.amount, 'os', session))) {
+      await registerLedgerMovement({
+        type: 'os',
+        method: 'mercado_pago',
+        amount: payment.amount,
+        notes: `OS ${order.number}`,
+        referenceId: order._id,
+        session,
+      });
+    }
+    return { order, becamePaid: false };
+  }
+
+  await registerLedgerMovement({
+    type: 'os',
+    method: 'mercado_pago',
+    amount: payment.amount,
+    notes: `OS ${order.number}`,
+    referenceId: order._id,
+    session,
+  });
+  return {
+    order,
+    becamePaid: order.paidAmount >= order.total && order.total > 0,
+  };
 }

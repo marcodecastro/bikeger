@@ -37,7 +37,7 @@ export function summarizeRegister(register) {
   const byMethod = { ...EMPTY_METHODS };
   let expectedCash = assertCents(register.openingAmount || 0, 'fundo de caixa');
 
-  for (const movement of register.movements) {
+  for (const movement of register.movements || []) {
     assertCents(movement.amount, 'movimento de caixa');
     if (movement.type === 'sangria') {
       expectedCash = subtractCents(expectedCash, movement.amount);
@@ -75,6 +75,20 @@ export function withSummary(register) {
   if (!register) return null;
   const data = typeof register.toObject === 'function' ? register.toObject() : { ...register };
   const summary = summarizeRegister(register);
+  data.summary = summary;
+  data.expectedCash = summary.expectedCash;
+  return data;
+}
+
+export async function withLedgerSummary(register, session = null) {
+  if (!register) return null;
+  const data = typeof register.toObject === 'function' ? register.toObject() : { ...register };
+  const ledger = await CashMovement.find({ registerId: data._id })
+    .sort({ createdAt: 1 })
+    .session(session || undefined)
+    .lean();
+  const movements = ledger.length ? ledger : data.movements || [];
+  const summary = summarizeRegister({ openingAmount: data.openingAmount, movements });
   data.summary = summary;
   data.expectedCash = summary.expectedCash;
   return data;
@@ -147,14 +161,6 @@ export async function registerLedgerMovement({
 
   assertCents(amount, 'movimento de caixa');
   const resolvedMethod = type === 'sangria' || type === 'suprimento' ? 'dinheiro' : method;
-  register.movements.push({
-    type,
-    method: resolvedMethod,
-    amount,
-    notes,
-    referenceId,
-  });
-  register.expectedCash = summarizeRegister(register).expectedCash;
   await persistExtractedMovement({
     register,
     type,
@@ -165,36 +171,62 @@ export async function registerLedgerMovement({
     operator,
     session,
   });
-  await register.save({ session: session || undefined });
-  return withSummary(register);
+  const pushed = await CashRegister.findOneAndUpdate(
+    { _id: register._id, status: 'aberto' },
+    {
+      $push: {
+        movements: {
+          type,
+          method: resolvedMethod,
+          amount,
+          notes,
+          referenceId,
+        },
+      },
+    },
+    { new: true, session: session || undefined },
+  );
+  if (!pushed) throw httpError(409, CASH_CLOSED_MESSAGE);
+
+  const ledger = await CashMovement.find({ registerId: pushed._id }).session(session || undefined);
+  const summary = summarizeRegister({ openingAmount: pushed.openingAmount, movements: ledger });
+  pushed.expectedCash = summary.expectedCash;
+  await CashRegister.updateOne(
+    { _id: pushed._id },
+    { $set: { expectedCash: summary.expectedCash } },
+    { session: session || undefined },
+  );
+  return withSummary(pushed);
 }
 
 export async function reverseLedgerForReference(referenceId, session = null) {
   const register = await requireOpenRegister(session);
-
-  const others = await CashRegister.find({
-    _id: { $ne: register._id },
-    'movements.referenceId': referenceId,
-  }).session(session || undefined);
+  let history = await CashMovement.find({ referenceId }).session(session || undefined);
+  if (!history.length) {
+    const books = await CashRegister.find({ 'movements.referenceId': referenceId }).session(
+      session || undefined,
+    );
+    history = books.flatMap((book) =>
+      (book.movements || []).filter(
+        (movement) => String(movement.referenceId || '') === String(referenceId),
+      ),
+    );
+  }
 
   const net = new Map();
-  for (const book of [register, ...others]) {
-    addReferenceNet(net, book, referenceId);
+  for (const movement of history) {
+    if (movement.type === 'sangria' || movement.type === 'suprimento') continue;
+    const method = movement.method || 'dinheiro';
+    const sign = movement.type === 'estorno' ? -1 : 1;
+    net.set(method, (net.get(method) || 0) + sign * movement.amount);
   }
 
   const pending = [...net.entries()].filter(([, amount]) => amount > 0);
   if (!pending.length) return withSummary(register);
 
+  let last = register;
   for (const [method, amount] of pending) {
-    register.movements.push({
-      type: 'estorno',
-      method,
-      amount,
-      notes: 'Estorno restante',
-      referenceId,
-    });
-    await persistExtractedMovement({
-      register,
+    last = await registerLedgerMovement({
       type: 'estorno',
       method,
       amount,
@@ -203,20 +235,7 @@ export async function reverseLedgerForReference(referenceId, session = null) {
       session,
     });
   }
-
-  register.expectedCash = summarizeRegister(register).expectedCash;
-  await register.save({ session: session || undefined });
-  return withSummary(register);
-}
-
-function addReferenceNet(net, register, referenceId) {
-  for (const movement of register.movements) {
-    if (String(movement.referenceId || '') !== String(referenceId)) continue;
-    if (movement.type === 'sangria' || movement.type === 'suprimento') continue;
-    const method = movement.method || 'dinheiro';
-    const sign = movement.type === 'estorno' ? -1 : 1;
-    net.set(method, (net.get(method) || 0) + sign * movement.amount);
-  }
+  return last;
 }
 
 function sumByType(movements, type) {
@@ -227,8 +246,9 @@ function sumByType(movements, type) {
 
 export async function buildDayReport(register) {
   const settings = await getSettings();
-  const summary = summarizeRegister(register);
-  const movements = register.movements || [];
+  const ledger = await CashMovement.find({ registerId: register._id }).sort({ createdAt: 1 });
+  const movements = ledger.length ? ledger : register.movements || [];
+  const summary = summarizeRegister({ openingAmount: register.openingAmount, movements });
   const osRefs = new Set(
     movements
       .filter((movement) => movement.type === 'os' && movement.referenceId)
@@ -296,9 +316,9 @@ export async function closeRegister({ countedCash, notes = '', actor } = {}) {
   const register = await getOpenRegister();
   if (!register) throw httpError(404, 'Nenhum caixa aberto');
 
-  const summary = summarizeRegister(register);
+  const summarized = await withLedgerSummary(register);
   register.countedCash = assertCents(countedCash, 'dinheiro contado');
-  register.expectedCash = summary.expectedCash;
+  register.expectedCash = summarized.summary.expectedCash;
   register.difference = subtractCents(register.countedCash, register.expectedCash);
   register.status = 'fechado';
   register.closedAt = new Date();
@@ -321,5 +341,5 @@ export async function closeRegister({ countedCash, notes = '', actor } = {}) {
 
   enqueueJob('backup.daily', {});
 
-  return { ...withSummary(register), dayReport, day };
+  return { ...(await withLedgerSummary(register)), dayReport, day };
 }

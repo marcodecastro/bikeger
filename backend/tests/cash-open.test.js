@@ -14,6 +14,7 @@ import {
 import { CashMovement } from '../src/models/CashMovement.js';
 import { Job } from '../src/models/Job.js';
 import { enqueueJob, flushJobs } from '../src/utils/jobs.js';
+import { PAYMENT_DRAIN_INTERVAL_MS, scheduleNextPaymentDrain } from '../src/services/paymentOutbox.js';
 
 const uri = process.env.MONGODB_TEST_URI_A5 || 'mongodb://127.0.0.1:27017/bikeger_test_a5';
 
@@ -21,6 +22,7 @@ before(async () => {
   await mongoose.connect(uri);
   await CashRegister.syncIndexes();
   await CashRegister.deleteMany({});
+  await CashMovement.deleteMany({});
 });
 
 after(async () => {
@@ -106,4 +108,14 @@ test('job persistido no Mongo é processado no flush', async () => {
   await flushJobs();
   const after = await Job.findById(job._id);
   assert.equal(after.status, 'done');
+});
+
+test('payment.drain agenda o próximo ciclo para depois', async () => {
+  await Job.deleteMany({ name: 'payment.drain' });
+  await scheduleNextPaymentDrain();
+  const job = await Job.findOne({ name: 'payment.drain', status: 'pending' });
+  assert.ok(job);
+  assert.ok(job.runAfter.getTime() >= Date.now() + PAYMENT_DRAIN_INTERVAL_MS - 2000);
+  await scheduleNextPaymentDrain();
+  assert.equal(await Job.countDocuments({ name: 'payment.drain', status: 'pending' }), 1);
 });

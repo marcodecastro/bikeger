@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allowedOsStatuses, isOsTerminal, OS_KANBAN } from './labels';
+import { allowedOsStatuses, isOsTerminal, OS_KANBAN, COUNTER_PAYMENT_METHODS } from './labels';
 
 describe('máquina de status da OS', () => {
   it('oficina pode pular etapa e voltar, mas só entrega a partir de pronta', () => {
@@ -24,5 +24,11 @@ describe('máquina de status da OS', () => {
     expect(OS_KANBAN).toContain('orcamento');
     expect(OS_KANBAN).toContain('cancelada');
     expect(OS_KANBAN).not.toContain('entregue');
+  });
+
+  it('recebimento no balcão não inclui PIX nem Mercado Pago', () => {
+    expect(COUNTER_PAYMENT_METHODS).toEqual(['dinheiro', 'cartao_credito', 'cartao_debito']);
+    expect(COUNTER_PAYMENT_METHODS).not.toContain('pix');
+    expect(COUNTER_PAYMENT_METHODS).not.toContain('mercado_pago');
   });
 });

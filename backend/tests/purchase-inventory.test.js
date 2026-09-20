@@ -14,11 +14,19 @@ import {
 import { monthReport } from '../src/services/reportService.js';
 import { buildShelfLabels } from '../src/services/printerService.js';
 import { flushJobs } from '../src/utils/jobs.js';
+import { Purchase } from '../src/models/Purchase.js';
+import { Counter } from '../src/models/Counter.js';
 
-const uri = process.env.MONGODB_TEST_URI || 'mongodb://127.0.0.1:27017/bikeger_test';
+const uri = process.env.MONGODB_TEST_URI_PI || 'mongodb://127.0.0.1:27017/bikeger_test_pi';
 
 before(async () => {
   await mongoose.connect(uri);
+  await Promise.all([
+    Purchase.deleteMany({}),
+    InventoryCount.deleteMany({}),
+    Counter.deleteMany({ _id: { $in: ['purchase', 'inventory'] } }),
+  ]);
+  await InventoryCount.syncIndexes();
 });
 
 after(async () => {

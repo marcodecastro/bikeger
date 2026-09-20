@@ -50,4 +50,28 @@ describe('Caixa', () => {
     expect(open).toBeDisabled();
     resolveOpen?.(null);
   });
+
+  it('mostra erro de sangria com o caixa aberto', async () => {
+    const user = userEvent.setup();
+    get.mockImplementation(async (path: string) => {
+      if (path === '/cash/current') {
+        return {
+          _id: 'caixa1',
+          status: 'aberto',
+          expectedCash: 10000,
+          openingAmount: 10000,
+          summary: { byMethod: {}, receivedTotal: 0 },
+        };
+      }
+      if (path === '/cash') return [];
+      if (String(path).startsWith('/cash/movements')) return [];
+      return null;
+    });
+    post.mockRejectedValue(new Error('Valor da sangria deve ser um inteiro em centavos'));
+    render(<Cash />);
+
+    await user.click(await screen.findByRole('button', { name: 'Lançar' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/sangria/i);
+  });
 });

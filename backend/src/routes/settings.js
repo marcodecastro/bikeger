@@ -1,12 +1,57 @@
 import { Router } from 'express';
 import { getSettings } from '../models/Settings.js';
 import { asyncHandler, httpError } from '../utils/asyncHandler.js';
-import { fiscalReadiness } from '../utils/nfcePayload.js';
+import { fiscalCscId, fiscalCscToken, fiscalReadiness } from '../utils/nfcePayload.js';
 import { whatsappCloudConfig } from '../utils/whatsappCloud.js';
 import { isProduction } from '../utils/security.js';
 import { normalizeStoreLogo } from '../utils/storeLogo.js';
 
 export const settingsRouter = Router();
+
+export const SETTINGS_WRITE_FIELDS = [
+  'storeName',
+  'storeLogo',
+  'storePhone',
+  'storeAddress',
+  'storeCnpj',
+  'receiptFooter',
+  'printerWidth',
+  'mpAccessToken',
+  'mpPublicKey',
+  'mechanicNames',
+  'fiscalEnabled',
+  'stateRegistration',
+  'fiscalSeries',
+  'fiscalEnvironment',
+  'storeStreet',
+  'storeNumber',
+  'storeNeighborhood',
+  'storeCity',
+  'storeState',
+  'storeZip',
+  'taxRegime',
+  'focusNfeToken',
+  'fiscalCscId',
+  'fiscalCscToken',
+  'defaultNcm',
+  'defaultCfop',
+  'defaultIcmsCst',
+  'readyNoticeTemplate',
+  'openedNoticeTemplate',
+  'paidNoticeTemplate',
+  'quoteNoticeTemplate',
+  'waitingPartsDays',
+  'whatsappToken',
+  'whatsappPhoneNumberId',
+];
+
+export function pickSettingsBody(body) {
+  const picked = {};
+  for (const key of SETTINGS_WRITE_FIELDS) {
+    if (body?.[key] !== undefined) picked[key] = body[key];
+  }
+  return picked;
+}
 
 settingsRouter.get(
   '/',
@@ -20,15 +65,7 @@ settingsRouter.put(
   '/',
   asyncHandler(async (req, res) => {
     const settings = await getSettings();
-    const body = { ...req.body };
-    delete body.hasMpToken;
-    delete body.hasFocusNfe;
-    delete body.hasCsc;
-    delete body.fiscalReady;
-    delete body.tokenFromEnv;
-    delete body.hasWhatsAppCloud;
-    delete body.whatsappFromEnv;
-    delete body.secretsFromEnv;
+    const body = pickSettingsBody(req.body);
     if (isMasked(body.mpAccessToken)) delete body.mpAccessToken;
     if (isMasked(body.fiscalCscToken)) delete body.fiscalCscToken;
     if (isMasked(body.focusNfeToken)) delete body.focusNfeToken;
@@ -57,7 +94,13 @@ export function maskSecret(value) {
   return '••••••••';
 }
 
-const PRODUCTION_SECRET_FIELDS = ['mpAccessToken', 'focusNfeToken', 'whatsappToken'];
+const PRODUCTION_SECRET_FIELDS = [
+  'mpAccessToken',
+  'focusNfeToken',
+  'whatsappToken',
+  'fiscalCscToken',
+  'fiscalCscId',
+];
 
 function stripProductionSecrets(body) {
   if (!isProduction()) return;
@@ -77,9 +120,12 @@ export function toPublicSettings(settings) {
   delete safe.fiscalCscToken;
   const readiness = fiscalReadiness(settings);
   const whatsapp = whatsappCloudConfig(settings);
+  const cscId = fiscalCscId(settings);
+  const cscToken = fiscalCscToken(settings);
   safe.hasMpToken = Boolean(String(process.env.MP_ACCESS_TOKEN || '').trim() || (!isProduction() && settings.mpAccessToken));
   safe.hasFocusNfe = readiness.hasToken;
-  safe.hasCsc = Boolean(settings.fiscalCscId && settings.fiscalCscToken);
+  safe.hasCsc = Boolean(cscId && cscToken);
+  if (isProduction()) safe.fiscalCscId = cscId;
   safe.tokenFromEnv = readiness.tokenFromEnv;
   safe.secretsFromEnv = isProduction();
   safe.fiscalReady = readiness.canEmit;

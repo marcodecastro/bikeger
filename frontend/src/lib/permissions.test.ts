@@ -15,7 +15,9 @@ describe('capabilities do cliente', () => {
 
   it('sem capabilities no user, cai no mapa local do perfil', () => {
     expect(can('balcao', 'sales')).toBe(true);
+    expect(can('balcao', 'stock.write')).toBe(false);
     expect(can('mecanico', 'payments')).toBe(false);
+    expect(can('mecanico', 'stock.write')).toBe(false);
   });
 
   it('usa o mesmo contrato de capabilities do backend', async () => {

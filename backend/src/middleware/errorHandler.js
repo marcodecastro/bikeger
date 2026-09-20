@@ -19,7 +19,15 @@ function publicMessageFromError(err, status) {
     return first?.message || 'Dados inválidos';
   }
   if (err?.name === 'VersionError') return 'O registro mudou em outra tela. Atualize e tente de novo.';
-  if (err?.code === 11000) return 'Registro duplicado';
+  if (err?.code === 11000) {
+    if (err.keyPattern && Object.prototype.hasOwnProperty.call(err.keyPattern, 'document')) {
+      return 'Já existe um cliente com este CPF';
+    }
+    if (err.keyPattern && Object.prototype.hasOwnProperty.call(err.keyPattern, 'barcode')) {
+      return 'Já existe um produto com este código de barras';
+    }
+    return 'Registro duplicado';
+  }
   return err?.message || INTERNAL_ERROR_MESSAGE;
 }
 

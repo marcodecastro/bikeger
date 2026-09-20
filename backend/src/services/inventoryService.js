@@ -26,11 +26,19 @@ export async function getInventoryCount(id) {
 export async function startInventoryCount({ notes = '', operator = 'estoque' } = {}) {
   const open = await InventoryCount.findOne({ status: 'aberta' });
   if (open) return open;
-  return InventoryCount.create({
-    number: await nextNumber('inventory', 'INV'),
-    notes,
-    operator,
-  });
+  try {
+    return await InventoryCount.create({
+      number: await nextNumber('inventory', 'INV'),
+      notes,
+      operator,
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      const again = await InventoryCount.findOne({ status: 'aberta' });
+      if (again) return again;
+    }
+    throw error;
+  }
 }
 
 export async function scanInventoryItem(id, { code, productId, quantity = 1 }) {
@@ -94,20 +102,28 @@ export async function applyInventoryCount(id, operator = 'estoque') {
     assertOpen(count);
     if (!count.items.length) throw httpError(400, 'Conte pelo menos uma peça antes de aplicar');
 
-    for (const item of count.items) {
+    const claimed = await InventoryCount.findOneAndUpdate(
+      { _id: id, status: 'aberta' },
+      {
+        $set: {
+          status: 'aplicada',
+          appliedAt: new Date(),
+          operator: operator || count.operator,
+        },
+      },
+      { new: true, session: session || undefined },
+    );
+    if (!claimed) throw httpError(409, 'Essa contagem já foi encerrada');
+
+    for (const item of claimed.items) {
       await adjustStockTo({
         productId: item.product,
         newQuantity: item.countedQty,
-        notes: `Inventário ${count.number}`,
+        notes: `Inventário ${claimed.number}`,
         operator,
         session,
       });
     }
-
-    count.status = 'aplicada';
-    count.appliedAt = new Date();
-    count.operator = operator || count.operator;
-    await count.save({ session: session || undefined });
   });
   return getInventoryCount(id);
 }

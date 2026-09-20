@@ -25,5 +25,9 @@ const inventoryCountSchema = new mongoose.Schema(
 );
 
 inventoryCountSchema.index({ createdAt: -1 });
+inventoryCountSchema.index(
+  { status: 1 },
+  { unique: true, partialFilterExpression: { status: 'aberta' }, name: 'one_open_inventory' },
+);
 
 export const InventoryCount = mongoose.model('InventoryCount', inventoryCountSchema);

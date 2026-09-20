@@ -53,6 +53,24 @@ test('produção esconde detalhe do 500 e mantém mensagem do 409', () => {
   assert.equal(resValidation.statusCode, 400);
   assert.equal(resValidation.body.message, 'status inválido');
 
+  const dupCpf = Object.assign(new Error('E11000 duplicate key'), {
+    code: 11000,
+    keyPattern: { document: 1 },
+  });
+  const resCpf = mockRes();
+  errorHandler(dupCpf, {}, resCpf, () => undefined);
+  assert.equal(resCpf.statusCode, 409);
+  assert.equal(resCpf.body.message, 'Já existe um cliente com este CPF');
+
+  const dupBarcode = Object.assign(new Error('E11000 duplicate key'), {
+    code: 11000,
+    keyPattern: { barcode: 1 },
+  });
+  const resBarcode = mockRes();
+  errorHandler(dupBarcode, {}, resBarcode, () => undefined);
+  assert.equal(resBarcode.statusCode, 409);
+  assert.equal(resBarcode.body.message, 'Já existe um produto com este código de barras');
+
   console.error = previousError;
   process.env.NODE_ENV = previousEnv;
 });

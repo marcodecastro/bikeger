@@ -1,6 +1,5 @@
 import { Sale } from '../models/Sale.js';
 import { Product } from '../models/Product.js';
-import { accumulateByCategory, lineMargin } from '../utils/margin.js';
 
 export async function marginByCategory({ from, to } = {}) {
   const filter = { status: { $in: ['paga', 'devolvida'] } };
@@ -10,27 +9,70 @@ export async function marginByCategory({ from, to } = {}) {
     if (to) filter.createdAt.$lte = new Date(to);
   }
 
-  const sales = await Sale.find(filter);
-  const productIds = [...new Set(sales.flatMap((sale) => sale.items.map((item) => String(item.product))))];
-  const products = await Product.find({ _id: { $in: productIds } }).select('category');
-  const categoryById = new Map(products.map((product) => [String(product._id), product.category]));
+  const rows = await Sale.aggregate([
+    { $match: filter },
+    { $unwind: '$items' },
+    {
+      $addFields: {
+        qty: { $subtract: ['$items.quantity', { $ifNull: ['$items.returnedQuantity', 0] }] },
+      },
+    },
+    { $match: { qty: { $gt: 0 } } },
+    {
+      $lookup: {
+        from: Product.collection.collectionName,
+        localField: 'items.product',
+        foreignField: '_id',
+        as: 'productDoc',
+      },
+    },
+    {
+      $addFields: {
+        category: {
+          $let: {
+            vars: {
+              itemCat: { $ifNull: ['$items.category', ''] },
+              productCat: { $ifNull: [{ $arrayElemAt: ['$productDoc.category', 0] }, ''] },
+            },
+            in: {
+              $cond: [
+                { $gt: [{ $strLenCP: '$$itemCat' }, 0] },
+                '$$itemCat',
+                {
+                  $cond: [
+                    { $gt: [{ $strLenCP: '$$productCat' }, 0] },
+                    '$$productCat',
+                    'Sem categoria',
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        revenue: { $multiply: ['$items.unitPrice', '$qty'] },
+        cost: { $multiply: ['$items.unitCost', '$qty'] },
+      },
+    },
+    {
+      $group: {
+        _id: '$category',
+        revenue: { $sum: '$revenue' },
+        cost: { $sum: '$cost' },
+        quantity: { $sum: '$qty' },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        category: '$_id',
+        revenue: 1,
+        cost: 1,
+        profit: { $subtract: ['$revenue', '$cost'] },
+        quantity: 1,
+      },
+    },
+    { $sort: { profit: -1 } },
+  ]);
 
-  const lines = [];
-  for (const sale of sales) {
-    for (const item of sale.items) {
-      const margin = lineMargin({
-        unitPrice: item.unitPrice,
-        unitCost: item.unitCost,
-        quantity: item.quantity,
-        returnedQuantity: item.returnedQuantity || 0,
-      });
-      if (!margin.quantity) continue;
-      lines.push({
-        ...margin,
-        category: item.category || categoryById.get(String(item.product)) || 'Sem categoria',
-      });
-    }
-  }
-
-  return accumulateByCategory(lines);
+  return rows;
 }

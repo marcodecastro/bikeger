@@ -29,6 +29,7 @@ export function SettingsPage() {
   const [mechanicText, setMechanicText] = useState('');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [logoBusy, setLogoBusy] = useState(false);
 
   const MAX_LOGO_BYTES = 250 * 1024;
@@ -36,11 +37,24 @@ export function SettingsPage() {
   useEffect(() => {
     get<Settings>('/settings')
       .then((loaded) => {
+        setLoadError('');
         setSettings(loaded);
         setMechanicText((loaded.mechanicNames || []).join('\n'));
       })
-      .catch(() => undefined);
+      .catch((err: unknown) => {
+        setLoadError(err instanceof Error ? err.message : 'Falha ao carregar os ajustes');
+      });
   }, []);
+
+  if (!settings && loadError) {
+    return (
+      <section className="page">
+        <p className="error" role="alert">
+          {loadError}
+        </p>
+      </section>
+    );
+  }
 
   if (!settings) return <section className="page">Carregando ajustes...</section>;
 
@@ -74,7 +88,7 @@ export function SettingsPage() {
     try {
       setError('');
       setStatus('');
-      const saved = await put<Settings>('/settings', {
+      const payload = {
         ...settings,
         mechanicNames: mechanicText
           .split('\n')
@@ -84,7 +98,15 @@ export function SettingsPage() {
         focusNfeToken: focusToken || undefined,
         fiscalCscToken: cscToken || undefined,
         whatsappToken: waToken || undefined,
-      });
+      };
+      if (settings.secretsFromEnv) {
+        delete payload.mpAccessToken;
+        delete payload.focusNfeToken;
+        delete payload.fiscalCscToken;
+        delete payload.fiscalCscId;
+        delete payload.whatsappToken;
+      }
+      const saved = await put<Settings>('/settings', payload);
       setSettings(saved);
       setMpToken('');
       setFocusToken('');
@@ -107,7 +129,7 @@ export function SettingsPage() {
       <div className="page-head">
         <div>
           <h2>Ajustes</h2>
-          <p>Loja, Mercado Pago e NFC-e. Em produção os tokens (MP, Focus, WhatsApp) ficam só no .env.</p>
+          <p>Loja, Mercado Pago e NFC-e. Em produção os tokens (MP, Focus, WhatsApp, CSC) ficam só no .env.</p>
         </div>
       </div>
       <article className="card grid grid-2">
@@ -369,6 +391,10 @@ export function SettingsPage() {
           CSC ID
           <input
             value={settings.fiscalCscId || ''}
+            disabled={Boolean(settings.secretsFromEnv)}
+            placeholder={
+              settings.secretsFromEnv ? 'FISCAL_CSC_ID no .env do servidor' : 'identificador do CSC'
+            }
             onChange={(event) => set('fiscalCscId', event.target.value)}
           />
         </label>
@@ -376,7 +402,14 @@ export function SettingsPage() {
           CSC token
           <input
             value={cscToken}
-            placeholder={settings.hasCsc ? 'CSC já configurado' : 'token da SEFAZ'}
+            disabled={Boolean(settings.secretsFromEnv)}
+            placeholder={
+              settings.secretsFromEnv
+                ? 'FISCAL_CSC_TOKEN no .env do servidor'
+                : settings.hasCsc
+                  ? 'CSC já configurado'
+                  : 'token da SEFAZ'
+            }
             onChange={(event) => setCscToken(event.target.value)}
           />
         </label>

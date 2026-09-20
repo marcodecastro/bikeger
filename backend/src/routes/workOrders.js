@@ -72,7 +72,7 @@ workOrdersRouter.get(
 workOrdersRouter.post(
   '/',
   asyncHandler(async (req, res) => {
-    const order = await createWorkOrder(req.body);
+    const order = await createWorkOrder(req.body, req.user);
     jsonWithoutCost(req, res, order, 201);
   }),
 );
@@ -80,7 +80,7 @@ workOrdersRouter.post(
 workOrdersRouter.patch(
   '/:id',
   asyncHandler(async (req, res) => {
-    const order = await updateWorkOrder(req.params.id, req.body, operatorName(req));
+    const order = await updateWorkOrder(req.params.id, req.body, operatorName(req), req.user);
     jsonWithoutCost(req, res, order);
   }),
 );
@@ -91,6 +91,7 @@ workOrdersRouter.post(
     const order = await addPartToWorkOrder(req.params.id, {
       ...req.body,
       operator: operatorName(req),
+      actor: req.user,
     });
     jsonWithoutCost(req, res, order, 201);
   }),
@@ -140,7 +141,7 @@ workOrdersRouter.post(
 workOrdersRouter.post(
   '/:id/cancel',
   asyncHandler(async (req, res) => {
-    const order = await cancelWorkOrder(req.params.id, operatorName(req));
+    const order = await cancelWorkOrder(req.params.id, operatorName(req), req.user);
     jsonWithoutCost(req, res, order);
   }),
 );

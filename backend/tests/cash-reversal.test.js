@@ -2,6 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 import { CashRegister } from '../src/models/CashRegister.js';
+import { CashMovement } from '../src/models/CashMovement.js';
 import { Product } from '../src/models/Product.js';
 import { Sale } from '../src/models/Sale.js';
 import { Customer } from '../src/models/Customer.js';
@@ -32,6 +33,7 @@ before(async () => {
   await mongoose.connect(uri);
   await Promise.all([
     CashRegister.deleteMany({}),
+    CashMovement.deleteMany({}),
     Product.deleteMany({}),
     Sale.deleteMany({}),
     Customer.deleteMany({}),
@@ -49,6 +51,7 @@ after(async () => {
 
 async function resetCash() {
   await CashRegister.deleteMany({});
+  await CashMovement.deleteMany({});
 }
 
 async function makeProduct() {
@@ -179,11 +182,11 @@ test('cancelar OS paga após fechar o caixa estorna no novo aberto', async () =>
     complaint: 'A10',
   });
   await addPartToWorkOrder(created._id, { productId: product._id, quantity: 1 });
-  await addPaymentToWorkOrder(created._id, { method: 'pix', amount: 2000 });
+  await addPaymentToWorkOrder(created._id, { method: 'dinheiro', amount: 2000 });
   const closed = await closeRegister({ countedCash: 0 });
 
   await openRegister({ openingAmount: 0, operator: 'teste' });
-  const cancelled = await cancelWorkOrder(created._id, 'teste');
+  const cancelled = await cancelWorkOrder(created._id, 'teste', { role: 'balcao' });
   assert.equal(cancelled.status, 'cancelada');
 
   const morning = await CashRegister.findById(closed._id);
@@ -193,5 +196,5 @@ test('cancelar OS paga após fechar o caixa estorna no novo aberto', async () =>
   const afternoon = await CashRegister.findOne({ status: 'aberto' });
   const reversal = movementsFor(afternoon, created._id).find((movement) => movement.type === 'estorno');
   assert.equal(reversal.amount, 2000);
-  assert.equal(reversal.method, 'pix');
+  assert.equal(reversal.method, 'dinheiro');
 });

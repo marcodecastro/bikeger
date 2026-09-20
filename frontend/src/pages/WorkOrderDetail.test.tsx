@@ -133,6 +133,27 @@ describe('OS pronta', () => {
     expect(await screen.findByText(/nenhum caixa aberto/i)).toBeInTheDocument();
   });
 
+  it('esconde Cancelada para o mecânico quando a OS já está paga', async () => {
+    can.mockImplementation((capability: string) => capability !== 'payments');
+    get.mockImplementation(async (path: string) => {
+      if (path === '/work-orders/os1') return { ...order, paidAmount: 8000 };
+      if (path.startsWith('/products')) return [];
+      if (path.startsWith('/services')) return [];
+      return [];
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/oficina/os1']}>
+        <Routes>
+          <Route path="/oficina/:id" element={<WorkOrderDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByLabelText('Status');
+    expect(screen.queryByRole('option', { name: 'Cancelada' })).not.toBeInTheDocument();
+  });
+
   it('mostra o 409 do PIX sem deixar a promessa sem tratamento', async () => {
     const user = userEvent.setup();
     can.mockReturnValue(true);
@@ -267,10 +288,14 @@ describe('OS pronta', () => {
       </MemoryRouter>,
     );
 
+    expect(await screen.findByLabelText('Meio')).toHaveValue('dinheiro');
+    expect(screen.queryByRole('option', { name: 'PIX' })).not.toBeInTheDocument();
+    expect(screen.getByText(/PIX só pelo Mercado Pago/)).toBeInTheDocument();
+
     await user.click(await screen.findByRole('button', { name: 'Registrar' }));
 
     expect(post).toHaveBeenCalledWith('/work-orders/os1/payments', {
-      method: 'pix',
+      method: 'dinheiro',
       amount: 8000,
     });
     expect(await screen.findByText(/nenhum caixa aberto/i)).toBeInTheDocument();

@@ -16,6 +16,9 @@ import {
   persistWorkOrder,
   updateWorkOrder,
   WORK_ORDER_CONFLICT_MESSAGE,
+  WORK_ORDER_DISCOUNT_FORBIDDEN,
+  WORK_ORDER_PAID_CANCEL_FORBIDDEN,
+  WORK_ORDER_PART_PRICE_FORBIDDEN,
 } from '../src/services/workOrderService.js';
 import { ensureOpenRegister } from './helpers/openCash.js';
 import { flushJobs } from '../src/utils/jobs.js';
@@ -157,10 +160,10 @@ test('cancelar de novo a mesma OS é idempotente e não mexe no estoque', async 
 test('cancelar OS paga lança estorno no livro e não duplica na segunda vez', async () => {
   await ensureOpenRegister();
   const { product, order } = await makeOrder('A2-PIX', 1);
-  await addPartToWorkOrder(order._id, { productId: product._id, quantity: 1, unitPrice: 8000 });
-  await addPaymentToWorkOrder(order._id, { method: 'pix', amount: 8000 });
+  await addPartToWorkOrder(order._id, { productId: product._id, quantity: 1, unitPrice: 8000, actor: { role: 'balcao' } });
+  await addPaymentToWorkOrder(order._id, { method: 'dinheiro', amount: 8000 });
 
-  const cancelled = await cancelWorkOrder(order._id, 'teste');
+  const cancelled = await cancelWorkOrder(order._id, 'teste', { role: 'balcao' });
   assert.equal(cancelled.status, 'cancelada');
 
   const register = await CashRegister.findOne({ status: 'aberto' });
@@ -168,9 +171,9 @@ test('cancelar OS paga lança estorno no livro e não duplica na segunda vez', a
   assert.equal(mine.filter((movement) => movement.type === 'os').length, 1);
   assert.equal(mine.filter((movement) => movement.type === 'estorno').length, 1);
   assert.equal(mine.find((movement) => movement.type === 'estorno').amount, 8000);
-  assert.equal(mine.find((movement) => movement.type === 'estorno').method, 'pix');
+  assert.equal(mine.find((movement) => movement.type === 'estorno').method, 'dinheiro');
 
-  await cancelWorkOrder(order._id, 'teste');
+  await cancelWorkOrder(order._id, 'teste', { role: 'balcao' });
   const after = await CashRegister.findOne({ status: 'aberto' });
   const again = after.movements.filter((movement) => String(movement.referenceId) === String(order._id));
   assert.equal(again.filter((movement) => movement.type === 'estorno').length, 1);
@@ -179,10 +182,10 @@ test('cancelar OS paga lança estorno no livro e não duplica na segunda vez', a
 test('PATCH status=cancelada também estorna dinheiro no caixa', async () => {
   await ensureOpenRegister();
   const { product, order } = await makeOrder('A2-PATCH', 1);
-  await addPartToWorkOrder(order._id, { productId: product._id, quantity: 1, unitPrice: 2500 });
+  await addPartToWorkOrder(order._id, { productId: product._id, quantity: 1, unitPrice: 2500, actor: { role: 'balcao' } });
   await addPaymentToWorkOrder(order._id, { method: 'dinheiro', amount: 2500 });
 
-  await updateWorkOrder(order._id, { status: 'cancelada' }, 'teste');
+  await updateWorkOrder(order._id, { status: 'cancelada' }, 'teste', { role: 'balcao' });
 
   const register = await CashRegister.findOne({ status: 'aberto' });
   const mine = register.movements.filter((movement) => String(movement.referenceId) === String(order._id));
@@ -265,6 +268,77 @@ test('persist da OS com __v velho devolve 409', async () => {
   );
   const after = await WorkOrder.findById(order._id);
   assert.equal(after.complaint, 'atual');
+});
+
+test('mecânico não aplica desconto na OS', async () => {
+  const { order } = await makeOrder('DISC', 1);
+  await assert.rejects(
+    () => updateWorkOrder(order._id, { discount: 500 }, 'leo', { role: 'mecanico' }),
+    (error) => error.status === 403 && error.message === WORK_ORDER_DISCOUNT_FORBIDDEN,
+  );
+  const after = await WorkOrder.findById(order._id);
+  assert.equal(after.discount, 0);
+});
+
+test('mecânico não cancela OS paga', async () => {
+  await ensureOpenRegister();
+  const { product, order } = await makeOrder('MEC-PAY', 1);
+  await addPartToWorkOrder(order._id, { productId: product._id, quantity: 1, unitPrice: 2000 });
+  await addPaymentToWorkOrder(order._id, { method: 'dinheiro', amount: 2000 });
+
+  await assert.rejects(
+    () => cancelWorkOrder(order._id, 'leo', { role: 'mecanico' }),
+    (error) => error.status === 403 && error.message === WORK_ORDER_PAID_CANCEL_FORBIDDEN,
+  );
+  const after = await WorkOrder.findById(order._id);
+  assert.equal(after.status, 'aberta');
+  assert.equal(after.paidAmount, 2000);
+});
+
+test('mecânico não abre OS com desconto', async () => {
+  const { order } = await makeOrder('DISC-NEW', 1);
+  await assert.rejects(
+    () =>
+      createWorkOrder(
+        {
+          customer: order.customer._id || order.customer,
+          bike: order.bike._id || order.bike,
+          complaint: 'desconto',
+          discount: 500,
+        },
+        { role: 'mecanico' },
+      ),
+    (error) => error.status === 403 && error.message === WORK_ORDER_DISCOUNT_FORBIDDEN,
+  );
+});
+
+test('mecânico não altera o preço da peça; o balcão pode', async () => {
+  const { product, order } = await makeOrder('PRICE', 3);
+  await assert.rejects(
+    () =>
+      addPartToWorkOrder(order._id, {
+        productId: product._id,
+        quantity: 1,
+        unitPrice: 1,
+        actor: { role: 'mecanico' },
+      }),
+    (error) => error.status === 403 && error.message === WORK_ORDER_PART_PRICE_FORBIDDEN,
+  );
+
+  const catalog = await addPartToWorkOrder(order._id, {
+    productId: product._id,
+    quantity: 1,
+    actor: { role: 'mecanico' },
+  });
+  assert.equal(catalog.parts[0].unitPrice, 2000);
+
+  const counter = await addPartToWorkOrder(order._id, {
+    productId: product._id,
+    quantity: 1,
+    unitPrice: 1500,
+    actor: { role: 'balcao' },
+  });
+  assert.equal(counter.parts[1].unitPrice, 1500);
 });
 
 

@@ -56,6 +56,10 @@ Backup diário (`mongodump`, 14 dias) e restore de teste: [docs/backup.md](docs/
 
 Também use `MP_ACCESS_TOKEN` (e `WHATSAPP_TOKEN`, se for a Cloud API) no `.env` de produção.
 
+## Frontend em produção
+
+O build da Vercel lê `frontend/.env.production`. `VITE_API_URL` entra no JavaScript do painel — não é senha, mas precisa ser a URL pública da API. Modelo: `frontend/.env.production.example`. Hoje o valor é `https://bikeger.onrender.com`. Se o arquivo divergir do Render, o login no ar quebra.
+
 ## Login
 
 Senha de demonstração: `bikeger`

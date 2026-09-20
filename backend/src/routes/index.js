@@ -47,6 +47,6 @@ router.use('/fiscal', requireCapability('sales'), fiscalRouter);
 router.use('/agenda', requireCapability('agenda'), agendaRouter);
 router.use('/notifications', requireCapability('workshop'), notificationsRouter);
 router.use('/audit', requireCapability('audit'), auditRouter);
-router.use('/purchases', requireCapability('stock.read'), purchasesRouter);
-router.use('/inventory', requireCapability('stock.read'), inventoryRouter);
+router.use('/purchases', requireCapability('stock.write'), purchasesRouter);
+router.use('/inventory', requireCapability('stock.write'), inventoryRouter);
 router.use('/reports', requireCapability('audit'), reportsRouter);

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { maskSecret, toPublicSettings } from '../src/routes/settings.js';
+import { maskSecret, pickSettingsBody, toPublicSettings } from '../src/routes/settings.js';
+import { pickProductBody } from '../src/routes/products.js';
 import { toPublicPayment, toPublicFiscal } from '../src/utils/publicDto.js';
 import { hashPassword, PASSWORD_TOO_SHORT_MESSAGE } from '../src/services/userService.js';
 
@@ -38,6 +39,30 @@ test('DTO de settings não devolve tokens', () => {
   assert.equal(publicSettings.whatsappToken, undefined);
   assert.equal(publicSettings.fiscalCscToken, undefined);
   assert.equal(publicSettings.hasCsc, true);
+});
+
+test('allowlist de produto ignora reserva e estoque no PUT', () => {
+  const picked = pickProductBody(
+    { name: 'Corrente', reservedStock: 9, currentStock: 4, availableStock: 1 },
+    { allowInitialStock: true },
+  );
+  assert.equal(picked.name, 'Corrente');
+  assert.equal(picked.currentStock, 4);
+  assert.equal(picked.reservedStock, undefined);
+  assert.equal(picked.availableStock, undefined);
+});
+
+test('allowlist de settings ignora campo que não existe no schema', () => {
+  const picked = pickSettingsBody({
+    storeName: 'Oficina',
+    hasMpToken: true,
+    reservedStock: 99,
+    fiscalCscToken: 'segredo',
+  });
+  assert.equal(picked.storeName, 'Oficina');
+  assert.equal(picked.fiscalCscToken, 'segredo');
+  assert.equal(picked.hasMpToken, undefined);
+  assert.equal(picked.reservedStock, undefined);
 });
 
 test('DTO de payment e fiscal não devolve raw', () => {

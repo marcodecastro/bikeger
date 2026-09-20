@@ -35,6 +35,20 @@ export function focusNfeToken(settings) {
   return String(settings?.focusNfeToken || '').trim();
 }
 
+export function fiscalCscToken(settings) {
+  const fromEnv = String(process.env.FISCAL_CSC_TOKEN || '').trim();
+  if (fromEnv) return fromEnv;
+  if (process.env.NODE_ENV === 'production') return '';
+  return String(settings?.fiscalCscToken || '').trim();
+}
+
+export function fiscalCscId(settings) {
+  const fromEnv = String(process.env.FISCAL_CSC_ID || '').trim();
+  if (fromEnv) return fromEnv;
+  if (process.env.NODE_ENV === 'production') return '';
+  return String(settings?.fiscalCscId || '').trim();
+}
+
 export function fiscalReadiness(settings) {
   const token = focusNfeToken(settings);
   const missing = missingEmitenteFields(settings);
@@ -57,8 +71,8 @@ export function missingEmitenteFields(settings) {
   if (!settings.storeCity) missing.push('Município');
   if (!settings.storeState || String(settings.storeState).length !== 2) missing.push('UF');
   if (digits(settings.storeZip).length !== 8) missing.push('CEP');
-  if (!settings.fiscalCscId) missing.push('CSC ID');
-  if (!settings.fiscalCscToken) missing.push('CSC token');
+  if (!fiscalCscId(settings)) missing.push('CSC ID');
+  if (!fiscalCscToken(settings)) missing.push('CSC token');
   return missing;
 }
 

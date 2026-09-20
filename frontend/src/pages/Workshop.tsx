@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { get, post } from '../lib/api';
 import { OS_KANBAN, OS_STATUS } from '../lib/labels';
 import { formatBRL } from '../lib/money';
+import { useBusy } from '../lib/useBusy';
 import type { Bike, Customer, WorkOrder } from '../types';
 import { Modal } from '../components/Modal';
 import { EntitySearch } from '../components/EntitySearch';
@@ -29,6 +30,7 @@ export function Workshop() {
   const [model, setModel] = useState('');
   const [type, setType] = useState('mtb');
   const [error, setError] = useState('');
+  const { busy, run } = useBusy();
 
   const searchCustomers = useCallback(
     (q: string) => get<Customer[]>(`/customers?q=${encodeURIComponent(q)}`),
@@ -58,30 +60,32 @@ export function Workshop() {
   }, [customerId]);
 
   async function create() {
-    try {
-      setError('');
-      let selectedBike = bikeId;
-      if (!selectedBike && brand.trim() && model.trim() && customerId) {
-        const created = await post<Bike>('/bikes', {
+    await run(async () => {
+      try {
+        setError('');
+        let selectedBike = bikeId;
+        if (!selectedBike && brand.trim() && model.trim() && customerId) {
+          const created = await post<Bike>('/bikes', {
+            customer: customerId,
+            brand: brand.trim(),
+            model: model.trim(),
+            type,
+          });
+          selectedBike = created._id;
+        }
+        const order = await post<WorkOrder>('/work-orders', {
           customer: customerId,
-          brand: brand.trim(),
-          model: model.trim(),
-          type,
+          bike: selectedBike,
+          complaint,
+          mechanic,
+          scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
+          scheduleKind: 'servico',
         });
-        selectedBike = created._id;
+        navigate(`/oficina/${order._id}`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Falha ao abrir OS');
       }
-      const order = await post<WorkOrder>('/work-orders', {
-        customer: customerId,
-        bike: selectedBike,
-        complaint,
-        mechanic,
-        scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
-        scheduleKind: 'servico',
-      });
-      navigate(`/oficina/${order._id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao abrir OS');
-    }
+    });
   }
 
   const columns = OS_KANBAN;
@@ -195,7 +199,13 @@ export function Workshop() {
                 {error}
               </p>
             ) : null}
-            <button type="button" className="btn btn-primary" onClick={() => void create()}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={busy}
+              aria-busy={busy}
+              onClick={() => void create()}
+            >
               Abrir OS
             </button>
           </div>

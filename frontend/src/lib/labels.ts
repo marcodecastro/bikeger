@@ -42,6 +42,9 @@ export const PAYMENT_METHODS: Record<string, string> = {
   mercado_pago: 'Mercado Pago',
 };
 
+/** Dinheiro e cartão caem na hora. PIX/MP só pelo gateway. */
+export const COUNTER_PAYMENT_METHODS = ['dinheiro', 'cartao_credito', 'cartao_debito'] as const;
+
 export const BIKE_TYPES: Record<string, string> = {
   mtb: 'MTB',
   speed: 'Speed',

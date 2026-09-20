@@ -1,19 +1,50 @@
+import mongoose from 'mongoose';
 import { Sale } from '../models/Sale.js';
 import { WorkOrder } from '../models/WorkOrder.js';
 import { Bike } from '../models/Bike.js';
 import { addCents } from '../utils/money.js';
+import { listLimit, MAX_LIST_LIMIT } from '../utils/listLimit.js';
 
-export async function customerHistory(customerId) {
-  const [bikes, sales, orders] = await Promise.all([
-    Bike.find({ customer: customerId }).sort({ createdAt: -1 }),
-    Sale.find({ customer: customerId, status: { $ne: 'cancelada' } }).sort({ createdAt: -1 }),
-    WorkOrder.find({ customer: customerId }).populate('bike').sort({ createdAt: -1 }),
+export const DEFAULT_HISTORY_LIMIT = 50;
+
+function asObjectId(value) {
+  if (value instanceof mongoose.Types.ObjectId) return value;
+  return new mongoose.Types.ObjectId(String(value));
+}
+
+function hasMore(loaded, total) {
+  return loaded < total && loaded < MAX_LIST_LIMIT;
+}
+
+export async function customerHistory(customerId, { salesLimit, ordersLimit } = {}) {
+  const salesCap = listLimit(salesLimit, DEFAULT_HISTORY_LIMIT);
+  const ordersCap = listLimit(ordersLimit, DEFAULT_HISTORY_LIMIT);
+  const customer = asObjectId(customerId);
+
+  const [bikes, sales, orders, salesAgg, ordersAgg] = await Promise.all([
+    Bike.find({ customer }).sort({ createdAt: -1 }),
+    Sale.find({ customer, status: { $ne: 'cancelada' } }).sort({ createdAt: -1 }).limit(salesCap),
+    WorkOrder.find({ customer }).populate('bike').sort({ createdAt: -1 }).limit(ordersCap),
+    Sale.aggregate([
+      { $match: { customer, status: { $ne: 'cancelada' } } },
+      { $group: { _id: null, total: { $sum: '$total' }, count: { $sum: 1 } } },
+    ]),
+    WorkOrder.aggregate([
+      { $match: { customer } },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: { $cond: [{ $ne: ['$status', 'cancelada'] }, '$total', 0] } },
+          count: { $sum: 1 },
+        },
+      },
+    ]),
   ]);
 
-  const salesTotal = sales.reduce((sum, sale) => addCents(sum, sale.total), 0);
-  const ordersTotal = orders
-    .filter((order) => order.status !== 'cancelada')
-    .reduce((sum, order) => addCents(sum, order.total), 0);
+  const salesTotal = salesAgg[0]?.total || 0;
+  const ordersTotal = ordersAgg[0]?.total || 0;
+  const salesCount = salesAgg[0]?.count || 0;
+  const ordersCount = ordersAgg[0]?.count || 0;
 
   return {
     bikes,
@@ -22,7 +53,11 @@ export async function customerHistory(customerId) {
     lifetimeValue: addCents(salesTotal, ordersTotal),
     salesTotal,
     ordersTotal,
-    visitCount: sales.length + orders.length,
+    visitCount: salesCount + ordersCount,
+    salesCount,
+    ordersCount,
+    salesHasMore: hasMore(sales.length, salesCount),
+    ordersHasMore: hasMore(orders.length, ordersCount),
   };
 }
 

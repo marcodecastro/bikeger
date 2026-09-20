@@ -18,7 +18,11 @@ export function Products() {
     const params = new URLSearchParams();
     if (q) params.set('q', q);
     if (category) params.set('category', category);
-    get<Product[]>(`/products?${params.toString()}`).then(setProducts).catch(() => undefined);
+    const delay = q.trim() ? 160 : 0;
+    const timer = window.setTimeout(() => {
+      get<Product[]>(`/products?${params.toString()}`).then(setProducts).catch(() => undefined);
+    }, delay);
+    return () => window.clearTimeout(timer);
   }, [q, category]);
 
   return (

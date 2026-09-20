@@ -36,6 +36,24 @@ export function addCartLine(
   };
 }
 
+export function setCartLineQuantity(
+  lines: CartLine[],
+  productId: string,
+  quantity: number,
+): { lines: CartLine[]; error?: string } {
+  const found = lines.find((line) => line.productId === productId);
+  if (!found) return { lines };
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    return { lines, error: `${found.name}: quantidade deve ser um inteiro positivo` };
+  }
+  if (quantity > found.available) {
+    return { lines, error: `${found.name} sem estoque livre` };
+  }
+  return {
+    lines: lines.map((line) => (line.productId === productId ? { ...line, quantity } : line)),
+  };
+}
+
 export function cartTotals(
   lines: Pick<CartLine, 'quantity' | 'unitPrice'>[],
   discount: number,

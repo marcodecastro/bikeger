@@ -9,6 +9,7 @@ import { getOpenRegister } from '../services/cashService.js';
 import { marginByCategory } from '../services/marginService.js';
 import { listNotices } from '../services/notifyService.js';
 import { hideCostIfNeeded } from '../utils/hideCost.js';
+import { can } from '../utils/roles.js';
 import { todaySalesKpi } from '../utils/todaySalesKpi.js';
 import { listStaleWaitingParts, workshopStatusCounts } from '../services/workOrderService.js';
 import { countOpenPaymentApplyFailures } from '../services/paymentOutbox.js';
@@ -24,9 +25,11 @@ dashboardRouter.get(
 
     const monthStart = new Date(start.getFullYear(), start.getMonth(), 1);
 
+    const canSeeSales = can(req.user?.role, 'sales');
+
     const [todayKpi, openOrders, workshopCounts, lowStock, customers, register, recentSales, recentOrders, todayMargin, monthMargin, pendingNotices, pendingApplyCount, settings] =
       await Promise.all([
-        todaySalesKpi(start),
+        canSeeSales ? todaySalesKpi(start) : { salesCount: 0, revenue: 0, cost: 0 },
         WorkOrder.find({ status: { $nin: ['entregue', 'cancelada'] } })
           .populate('customer')
           .populate('bike')
@@ -40,42 +43,40 @@ dashboardRouter.get(
           .sort({ currentStock: 1 })
           .limit(50),
         Customer.countDocuments(),
-        getOpenRegister(),
-        Sale.find({ status: { $ne: 'cancelada' } }).sort({ createdAt: -1 }).limit(6).populate('customer'),
+        canSeeSales ? getOpenRegister() : null,
+        canSeeSales
+          ? Sale.find({ status: { $ne: 'cancelada' } }).sort({ createdAt: -1 }).limit(6).populate('customer')
+          : [],
         WorkOrder.find().sort({ updatedAt: -1 }).limit(6).populate('customer').populate('bike'),
-        marginByCategory({ from: start }),
-        marginByCategory({ from: monthStart }),
+        canSeeSales ? marginByCategory({ from: start }) : [],
+        canSeeSales ? marginByCategory({ from: monthStart }) : [],
         listNotices({ status: 'pendente' }),
-        countOpenPaymentApplyFailures(),
+        canSeeSales ? countOpenPaymentApplyFailures() : 0,
         getSettings(),
       ]);
 
     const waitingParts = await listStaleWaitingParts(settings.waitingPartsDays || 3);
 
-    const isMechanic = req.user?.role === 'mecanico';
-
     res.json(
       hideCostIfNeeded(
         {
-          today: isMechanic
-            ? { salesCount: 0, revenue: 0, estimatedProfit: 0 }
-            : {
-                salesCount: todayKpi.salesCount,
-                revenue: todayKpi.revenue,
-                estimatedProfit: subtractCents(todayKpi.revenue, todayKpi.cost),
-              },
+          today: {
+            salesCount: todayKpi.salesCount,
+            revenue: todayKpi.revenue,
+            estimatedProfit: subtractCents(todayKpi.revenue, todayKpi.cost),
+          },
           customers,
           lowStock,
           openOrders,
           openOrderCount: workshopCounts.openOrderCount,
           workshop: workshopCounts.statusCount,
-          register: isMechanic ? null : register,
-          recentSales: isMechanic ? [] : recentSales,
+          register,
+          recentSales,
           recentOrders,
-          marginByCategory: isMechanic ? [] : todayMargin,
-          monthMarginByCategory: isMechanic ? [] : monthMargin,
+          marginByCategory: todayMargin,
+          monthMarginByCategory: monthMargin,
           pendingNotices,
-          pendingApplyCount: isMechanic ? 0 : pendingApplyCount,
+          pendingApplyCount,
           waitingParts,
           waitingPartsDays: settings.waitingPartsDays || 3,
         },

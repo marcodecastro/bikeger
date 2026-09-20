@@ -8,6 +8,15 @@ import type { CustomerHistory } from '../types';
 import { Modal } from '../components/Modal';
 import { BikeFields } from '../components/BikeFields';
 
+const HISTORY_PAGE = 50;
+
+function historyPath(id: string, salesLimit: number, ordersLimit: number) {
+  const params = new URLSearchParams();
+  params.set('salesLimit', String(salesLimit));
+  params.set('ordersLimit', String(ordersLimit));
+  return `/customers/${id}?${params}`;
+}
+
 export function CustomerDetail() {
   const { can } = useAuth();
   const { id } = useParams();
@@ -16,17 +25,33 @@ export function CustomerDetail() {
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [type, setType] = useState('mtb');
-
+  const [loadingMore, setLoadingMore] = useState<'sales' | 'orders' | null>(null);
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
 
-  async function load() {
+  async function load(salesLimit = HISTORY_PAGE, ordersLimit = HISTORY_PAGE) {
     if (!id) return;
-    setData(await get<CustomerHistory>(`/customers/${id}`));
+    try {
+      setLoadError('');
+      setData(await get<CustomerHistory>(historyPath(id, salesLimit, ordersLimit)));
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Falha ao carregar a ficha');
+    }
   }
 
   useEffect(() => {
     void load();
   }, [id]);
+
+  if (!data && loadError) {
+    return (
+      <section className="page">
+        <p className="error" role="alert">
+          {loadError}
+        </p>
+      </section>
+    );
+  }
 
   if (!data) return <section className="page">Carregando ficha...</section>;
 
@@ -42,14 +67,31 @@ export function CustomerDetail() {
       setBrand('');
       setModel('');
       setType('mtb');
-      await load();
+      await load(Math.max(HISTORY_PAGE, data.sales.length), Math.max(HISTORY_PAGE, data.orders.length));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao cadastrar a bike');
     }
   }
 
+  async function loadMore(kind: 'sales' | 'orders') {
+    if (!id || loadingMore) return;
+    try {
+      setLoadingMore(kind);
+      const salesLimit = kind === 'sales' ? data.sales.length + HISTORY_PAGE : Math.max(HISTORY_PAGE, data.sales.length);
+      const ordersLimit = kind === 'orders' ? data.orders.length + HISTORY_PAGE : Math.max(HISTORY_PAGE, data.orders.length);
+      await load(salesLimit, ordersLimit);
+    } finally {
+      setLoadingMore(null);
+    }
+  }
+
   return (
     <section className="page">
+      {loadError ? (
+        <p className="error" role="alert">
+          {loadError}
+        </p>
+      ) : null}
       <div className="page-head">
         <div>
           <h2>{data.customer.name}</h2>
@@ -105,6 +147,16 @@ export function CustomerDetail() {
               <span className="money">{formatBRL(order.total)}</span>
             </div>
           ))}
+          {data.ordersHasMore ? (
+            <button
+              type="button"
+              className="btn"
+              disabled={loadingMore === 'orders'}
+              onClick={() => void loadMore('orders')}
+            >
+              Ver mais OS
+            </button>
+          ) : null}
         </article>
       </div>
 
@@ -124,6 +176,16 @@ export function CustomerDetail() {
             ))}
           </tbody>
         </table>
+        {data.salesHasMore ? (
+          <button
+            type="button"
+            className="btn"
+            disabled={loadingMore === 'sales'}
+            onClick={() => void loadMore('sales')}
+          >
+            Ver mais compras
+          </button>
+        ) : null}
       </article>
       ) : null}
 

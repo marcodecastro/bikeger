@@ -125,6 +125,7 @@ export async function flushJobs() {
 export function startJobWorker() {
   void recoverJobs().then(async () => {
     await ensureRecurringJob('os.parts-stale');
+    await ensureRecurringJob('payment.drain');
     pump();
   });
   setInterval(() => {

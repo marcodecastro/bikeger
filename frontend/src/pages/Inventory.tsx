@@ -57,7 +57,12 @@ export function Inventory() {
 
   async function setQty(productId: string, countedQty: number) {
     if (!count) return;
-    setCount(await patch<InventoryCount>(`/inventory/${count._id}/items/${productId}`, { countedQty }));
+    try {
+      setError('');
+      setCount(await patch<InventoryCount>(`/inventory/${count._id}/items/${productId}`, { countedQty }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao gravar a quantidade');
+    }
   }
 
   async function apply() {
@@ -134,7 +139,11 @@ export function Inventory() {
               Contar +1
             </button>
           </form>
-          {error ? <p className="error">{error}</p> : null}
+          {error ? (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          ) : null}
           {count.items.length === 0 ? (
             <p className="empty">Nada contado ainda.</p>
           ) : (

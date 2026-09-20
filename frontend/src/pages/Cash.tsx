@@ -103,7 +103,6 @@ export function Cash() {
           >
             Abrir caixa
           </button>
-          {error ? <p className="error">{error}</p> : null}
         </article>
       ) : (
         <div className="grid grid-2">
@@ -161,6 +160,12 @@ export function Cash() {
           </article>
         </div>
       )}
+
+      {error ? (
+        <p className="error" role="alert" style={{ marginTop: 12 }}>
+          {error}
+        </p>
+      ) : null}
 
       <article className="card table-wrap" style={{ marginTop: 16 }}>
         <h3>Histórico</h3>

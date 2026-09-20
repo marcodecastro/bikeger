@@ -28,12 +28,14 @@ productsRouter.get(
         { brand: rx },
       ];
     }
-
-    let products = await Product.find(filter).populate('supplier').sort({ name: 1 }).limit(listLimit(req.query.limit, 300));
-
     if (lowStock === 'true') {
-      products = products.filter((product) => product.currentStock <= product.minStock);
+      filter.$expr = { $lte: ['$currentStock', '$minStock'] };
     }
+
+    const products = await Product.find(filter)
+      .populate('supplier')
+      .sort({ name: 1 })
+      .limit(listLimit(req.query.limit, 300));
 
     res.json(products.map((product) => hideCostIfNeeded(product, req.user)));
   }),
@@ -61,11 +63,44 @@ productsRouter.get(
   }),
 );
 
+export const PRODUCT_WRITE_FIELDS = [
+  'sku',
+  'barcode',
+  'name',
+  'description',
+  'category',
+  'brand',
+  'model',
+  'unit',
+  'costPrice',
+  'salePrice',
+  'minStock',
+  'ncm',
+  'cfop',
+  'icmsOrigin',
+  'icmsCst',
+  'location',
+  'supplier',
+  'active',
+  'images',
+];
+
+export function pickProductBody(body, { allowInitialStock = false } = {}) {
+  const picked = {};
+  for (const key of PRODUCT_WRITE_FIELDS) {
+    if (body?.[key] !== undefined) picked[key] = body[key];
+  }
+  if (allowInitialStock && body?.currentStock !== undefined) {
+    picked.currentStock = body.currentStock;
+  }
+  return picked;
+}
+
 productsRouter.post(
   '/',
   requireCapability('products.write'),
   asyncHandler(async (req, res) => {
-    const body = req.body;
+    const body = pickProductBody(req.body, { allowInitialStock: true });
     assertCents(body.costPrice ?? 0, 'preço de custo');
     assertCents(body.salePrice ?? 0, 'preço de venda');
     const initialStock = body.currentStock ?? 0;
@@ -94,10 +129,7 @@ productsRouter.put(
   '/:id',
   requireCapability('products.write'),
   asyncHandler(async (req, res) => {
-    const body = { ...req.body };
-    delete body.currentStock;
-    delete body.reservedStock;
-    delete body.availableStock;
+    const body = pickProductBody(req.body);
     if (body.costPrice !== undefined) assertCents(body.costPrice, 'preço de custo');
     if (body.salePrice !== undefined) assertCents(body.salePrice, 'preço de venda');
 

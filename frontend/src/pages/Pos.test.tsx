@@ -115,4 +115,18 @@ describe('PDV', () => {
     resolveSale?.({ _id: 'sale1', status: 'paga' });
     expect(await screen.findByText('CUPOM')).toBeInTheDocument();
   });
+
+  it('não deixa o qty passar do estoque livre', async () => {
+    const user = userEvent.setup();
+    render(<Pos />);
+
+    await user.type(screen.getByPlaceholderText('SKU, código ou nome'), 'corrente');
+    await user.click(await screen.findByRole('button', { name: 'Adicionar' }));
+
+    const qty = screen.getByDisplayValue('1');
+    fireEvent.change(qty, { target: { value: '9' } });
+
+    expect(await screen.findByText(/sem estoque livre/i)).toBeInTheDocument();
+    expect(qty).toHaveValue(1);
+  });
 });

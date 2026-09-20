@@ -2,6 +2,9 @@ import { PaymentApplyFailure } from '../models/PaymentApplyFailure.js';
 import { Payment } from '../models/Payment.js';
 import { log, logError } from '../utils/logger.js';
 import { recordAudit } from './auditService.js';
+import { enqueueJob } from '../utils/jobs.js';
+
+export const PAYMENT_DRAIN_INTERVAL_MS = 15 * 60 * 1000;
 
 export async function recordPaymentApplyFailed({
   mpPaymentId,
@@ -105,4 +108,15 @@ export async function drainPaymentApplyOutbox() {
   }
 
   return results;
+}
+
+export async function scheduleNextPaymentDrain() {
+  const { Job } = await import('../models/Job.js');
+  const exists = await Job.exists({
+    name: 'payment.drain',
+    status: { $in: ['pending', 'running'] },
+    runAfter: { $gt: new Date() },
+  });
+  if (exists) return;
+  await enqueueJob('payment.drain', {}, { runAfter: new Date(Date.now() + PAYMENT_DRAIN_INTERVAL_MS) });
 }

@@ -58,4 +58,18 @@ describe('Ficha da bike', () => {
       expect.objectContaining({ serialNumber: 'SN-99' }),
     );
   });
+
+  it('mostra o erro quando a ficha não carrega', async () => {
+    get.mockRejectedValue(new Error('Bicicleta não encontrada'));
+    render(
+      <MemoryRouter initialEntries={['/bikes/bike-1']}>
+        <Routes>
+          <Route path="/bikes/:id" element={<BikeDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Bicicleta não encontrada');
+    expect(screen.queryByText('Carregando bike...')).not.toBeInTheDocument();
+  });
 });

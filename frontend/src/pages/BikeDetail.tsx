@@ -17,12 +17,14 @@ export function BikeDetail() {
   const [frameSize, setFrameSize] = useState('');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!id) return;
     get<BikeHistory>(`/bikes/${id}`)
       .then((loaded) => {
+        setLoadError('');
         setData(loaded);
         setBrand(loaded.bike.brand || '');
         setModel(loaded.bike.model || '');
@@ -31,8 +33,20 @@ export function BikeDetail() {
         setColor(loaded.bike.color || '');
         setFrameSize(loaded.bike.frameSize || '');
       })
-      .catch(() => undefined);
+      .catch((err: unknown) => {
+        setLoadError(err instanceof Error ? err.message : 'Falha ao carregar a bike');
+      });
   }, [id]);
+
+  if (!data && loadError) {
+    return (
+      <section className="page">
+        <p className="error" role="alert">
+          {loadError}
+        </p>
+      </section>
+    );
+  }
 
   if (!data) return <section className="page">Carregando bike...</section>;
 

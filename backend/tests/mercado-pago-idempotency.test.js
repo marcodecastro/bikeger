@@ -16,6 +16,7 @@ import {
 } from '../src/services/mercadoPagoService.js';
 import { ensureOpenRegister } from './helpers/openCash.js';
 import { CashRegister } from '../src/models/CashRegister.js';
+import { CashMovement } from '../src/models/CashMovement.js';
 import { CASH_CLOSED_MESSAGE, openRegister } from '../src/services/cashService.js';
 import { PaymentApplyFailure } from '../src/models/PaymentApplyFailure.js';
 import { flushJobs } from '../src/utils/jobs.js';
@@ -163,6 +164,10 @@ test('webhook repetido do mesmo paymentId não duplica paidAmount nem o livro', 
   assert.equal(after.payments.length, 1);
   assert.equal(after.paidAmount, 10000);
   assert.equal(after.status, 'paga');
+
+  const ledgers = await CashMovement.find({ referenceId: sale._id, type: 'venda', method: 'mercado_pago' });
+  assert.equal(ledgers.length, 1);
+  assert.equal(ledgers[0].amount, 10000);
 });
 
 test('segundo paymentId aprovado é ignorado se a venda já está coberta', async () => {
@@ -277,6 +282,52 @@ test('aprovação MP na OS não aplica o mesmo id duas vezes', async () => {
   const after = await WorkOrder.findById(order._id);
   assert.equal(after.payments.length, 1);
   assert.equal(after.paidAmount, 3000);
+
+  const ledgers = await CashMovement.find({ referenceId: order._id, type: 'os', method: 'mercado_pago' });
+  assert.equal(ledgers.length, 1);
+});
+
+test('apply recupera livro se a venda já ficou paga sem CashMovement', async () => {
+  await ensureOpenRegister();
+  const number = `VD-BF-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+  const sale = await Sale.create({
+    number,
+    items: [],
+    subtotal: 5000,
+    discount: 0,
+    total: 5000,
+    paidAmount: 5000,
+    status: 'paga',
+    payments: [
+      {
+        method: 'mercado_pago',
+        amount: 5000,
+        status: 'aprovado',
+        mercadoPagoId: 'mp-backfill',
+      },
+    ],
+  });
+
+  await applyApprovedPayment(
+    { relatedType: 'sale', relatedId: sale._id, amount: 5000 },
+    { id: 'mp-backfill' },
+  );
+  await applyApprovedPayment(
+    { relatedType: 'sale', relatedId: sale._id, amount: 5000 },
+    { id: 'mp-backfill' },
+  );
+
+  const after = await Sale.findById(sale._id);
+  assert.equal(after.payments.length, 1);
+  assert.equal(after.paidAmount, 5000);
+
+  const ledgers = await CashMovement.find({
+    referenceId: sale._id,
+    type: 'venda',
+    method: 'mercado_pago',
+  });
+  assert.equal(ledgers.length, 1);
+  assert.equal(ledgers[0].amount, 5000);
 });
 
 test('PIX exige caixa aberto', async () => {

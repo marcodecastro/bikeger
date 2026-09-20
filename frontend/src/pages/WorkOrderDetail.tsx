@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { del, get, patch, post } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { OS_STATUS, PAYMENT_METHODS, allowedOsStatuses, isOsTerminal } from '../lib/labels';
+import { OS_STATUS, PAYMENT_METHODS, COUNTER_PAYMENT_METHODS, allowedOsStatuses, isOsTerminal } from '../lib/labels';
 import { formatBRL, subtractCents } from '../lib/money';
 import { isOpenPixStatus, PIX_POLL_MS } from '../lib/paymentPoll';
 import { useBusy } from '../lib/useBusy';
@@ -20,7 +20,7 @@ export function WorkOrderDetail() {
   const [productLabel, setProductLabel] = useState('');
   const [partQty, setPartQty] = useState(1);
   const [serviceId, setServiceId] = useState('');
-  const [payMethod, setPayMethod] = useState('pix');
+  const [payMethod, setPayMethod] = useState<(typeof COUNTER_PAYMENT_METHODS)[number]>('dinheiro');
   const [payAmount, setPayAmount] = useState(0);
   const [pix, setPix] = useState<MpPixPayment | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
@@ -101,7 +101,11 @@ export function WorkOrderDetail() {
 
   const openAmount = subtractCents(order.total, order.paidAmount);
   const closed = isOsTerminal(order.status);
-  const statusOptions = allowedOsStatuses(order.status);
+  const statusOptions = allowedOsStatuses(order.status).filter((status) => {
+    if (status !== 'cancelada') return true;
+    if (order.paidAmount <= 0) return true;
+    return can('payments');
+  });
 
   async function saveFields(body: Record<string, unknown>, restore: () => void) {
     try {
@@ -523,14 +527,23 @@ export function WorkOrderDetail() {
       {can('payments') && !closed ? (
       <article className="card" style={{ marginTop: 16 }}>
         <h3>Recebimento</h3>
+        <p className="muted">Dinheiro e cartão caem na hora. PIX só pelo Mercado Pago — senão o caixa mente.</p>
         <div className="row">
-          <select value={payMethod} onChange={(event) => setPayMethod(event.target.value)}>
-            {Object.entries(PAYMENT_METHODS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+          <label className="field">
+            Meio
+            <select
+              value={payMethod}
+              onChange={(event) =>
+                setPayMethod(event.target.value as (typeof COUNTER_PAYMENT_METHODS)[number])
+              }
+            >
+              {COUNTER_PAYMENT_METHODS.map((value) => (
+                <option key={value} value={value}>
+                  {PAYMENT_METHODS[value]}
+                </option>
+              ))}
+            </select>
+          </label>
           <MoneyInput label="Valor" valueCents={payAmount || openAmount} onChangeCents={setPayAmount} />
           <button
             type="button"

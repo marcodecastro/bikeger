@@ -18,7 +18,7 @@ import {
   reverseLedgerForReference,
 } from '../src/services/cashService.js';
 import { createSale } from '../src/services/saleService.js';
-import { addPartToWorkOrder, addPaymentToWorkOrder, addServiceToWorkOrder, cancelWorkOrder, createWorkOrder } from '../src/services/workOrderService.js';
+import { addPartToWorkOrder, addPaymentToWorkOrder, addServiceToWorkOrder, cancelWorkOrder, createWorkOrder, WORK_ORDER_GATEWAY_PAYMENT_MESSAGE } from '../src/services/workOrderService.js';
 import { applyApprovedPayment } from '../src/services/mercadoPagoService.js';
 import { flushJobs } from '../src/utils/jobs.js';
 
@@ -135,7 +135,7 @@ test('pagamento da OS com caixa fechado não altera paidAmount', async () => {
   await assert.rejects(
     () =>
       addPaymentToWorkOrder(order._id, {
-        method: 'pix',
+        method: 'dinheiro',
         amount: 1500,
       }),
     /nenhum caixa aberto/i,
@@ -245,10 +245,10 @@ test('OS paga não cancela com caixa fechado: status, pagamento e estoque ficam'
     complaint: 'A2',
   });
   await addPartToWorkOrder(created._id, { productId: product._id, quantity: 2 });
-  await addPaymentToWorkOrder(created._id, { method: 'pix', amount: 4000 });
+  await addPaymentToWorkOrder(created._id, { method: 'dinheiro', amount: 4000 });
   await closeRegister({ countedCash: 0 });
 
-  await assert.rejects(() => cancelWorkOrder(created._id, 'teste'), /nenhum caixa aberto/i);
+  await assert.rejects(() => cancelWorkOrder(created._id, 'teste', { role: 'balcao' }), /nenhum caixa aberto/i);
 
   const after = await WorkOrder.findById(created._id);
   assert.notEqual(after.status, 'cancelada');
@@ -282,5 +282,35 @@ test('OS recusa pagamento acima do total', async () => {
   const after = await WorkOrder.findById(created._id);
   assert.equal(after.paidAmount, 1000);
   assert.equal(after.payments.length, 1);
+});
+
+test('OS recusa PIX no registro manual mesmo com status aprovado', async () => {
+  await closeCash();
+  await openRegister({ openingAmount: 0, operator: 'teste' });
+  const customer = await Customer.create({ name: 'C3 gateway', phone: '11' });
+  const bike = await Bike.create({
+    customer: customer._id,
+    brand: 'Caloi',
+    model: '10',
+    type: 'urbana',
+  });
+  const created = await createWorkOrder({
+    customer: customer._id,
+    bike: bike._id,
+    complaint: 'pix manual',
+  });
+
+  await assert.rejects(
+    () => addPaymentToWorkOrder(created._id, { method: 'pix', amount: 1000, status: 'aprovado' }),
+    (error) => error.status === 400 && error.message === WORK_ORDER_GATEWAY_PAYMENT_MESSAGE,
+  );
+  await assert.rejects(
+    () => addPaymentToWorkOrder(created._id, { method: 'mercado_pago', amount: 1000 }),
+    (error) => error.status === 400 && error.message === WORK_ORDER_GATEWAY_PAYMENT_MESSAGE,
+  );
+
+  const after = await WorkOrder.findById(created._id);
+  assert.equal(after.payments.length, 0);
+  assert.equal(after.paidAmount, 0);
 });
 

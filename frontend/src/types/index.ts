@@ -485,6 +485,10 @@ export interface CustomerHistory {
   salesTotal: number;
   ordersTotal: number;
   visitCount: number;
+  salesCount: number;
+  ordersCount: number;
+  salesHasMore: boolean;
+  ordersHasMore: boolean;
 }
 
 export interface BikeHistory {

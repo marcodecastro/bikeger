@@ -18,6 +18,8 @@ test('balcão vende e escreve cliente, mas não mexe em equipe', () => {
   assert.equal(can('balcao', 'customers.read'), true);
   assert.equal(can('balcao', 'products.read'), true);
   assert.equal(can('balcao', 'products.write'), false);
+  assert.equal(can('balcao', 'stock.read'), true);
+  assert.equal(can('balcao', 'stock.write'), false);
   assert.equal(can('balcao', 'users'), false);
   assert.equal(can('balcao', 'settings'), false);
 });
@@ -27,6 +29,8 @@ test('mecânico lê oficina e não vê venda nem custo', () => {
   assert.equal(can('mecanico', 'agenda'), true);
   assert.equal(can('mecanico', 'customers.read'), true);
   assert.equal(can('mecanico', 'customers'), false);
+  assert.equal(can('mecanico', 'stock.read'), true);
+  assert.equal(can('mecanico', 'stock.write'), false);
   assert.equal(can('mecanico', 'sales'), false);
   assert.equal(can('mecanico', 'payments'), false);
 });

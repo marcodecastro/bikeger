@@ -41,8 +41,9 @@ registerJob('os.paid-notice', async ({ orderId }) => {
 });
 
 registerJob('payment.drain', async () => {
-  const { drainPaymentApplyOutbox } = await import('../services/paymentOutbox.js');
+  const { drainPaymentApplyOutbox, scheduleNextPaymentDrain } = await import('../services/paymentOutbox.js');
   await drainPaymentApplyOutbox();
+  await scheduleNextPaymentDrain();
 });
 
 registerJob('payment.apply', async ({ mpPaymentId }) => {

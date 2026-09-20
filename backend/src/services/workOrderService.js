@@ -19,10 +19,20 @@ import {
   WORK_ORDER_KANBAN_STATUSES,
   WORK_ORDER_RESERVE_STATUSES,
 } from '../utils/workOrderStatus.js';
+import { initialSalePaymentStatus, isGatewayPaymentMethod } from '../utils/paymentMethods.js';
+import { can } from '../utils/roles.js';
 
 const CONSUME_STATUSES = new Set(['em_servico', 'pronta', 'entregue']);
 export const PAYMENT_EXCEEDS_TOTAL_MESSAGE = 'Pagamento maior que o valor em aberto';
 export const WORK_ORDER_CONFLICT_MESSAGE = 'A OS mudou em outra tela. Atualize e tente de novo.';
+export const WORK_ORDER_GATEWAY_PAYMENT_MESSAGE =
+  'PIX e Mercado Pago nesta OS só pelo botão PIX Mercado Pago';
+export const WORK_ORDER_PAID_CANCEL_FORBIDDEN =
+  'Só o dono ou o balcão podem cancelar OS já paga';
+export const WORK_ORDER_DISCOUNT_FORBIDDEN =
+  'Só o dono ou o balcão podem aplicar desconto na OS';
+export const WORK_ORDER_PART_PRICE_FORBIDDEN =
+  'Só o dono ou o balcão podem alterar o preço da peça';
 
 export function recalcWorkOrder(order) {
   order.laborTotal = order.services.reduce((sum, item) => addCents(sum, item.total), 0);
@@ -70,7 +80,7 @@ async function persistOrder(order, session) {
 
 export { persistOrder as persistWorkOrder };
 
-export async function createWorkOrder(payload) {
+export async function createWorkOrder(payload, actor = {}) {
   const bike = await Bike.findById(payload.bike);
   if (!bike) throw httpError(404, 'Bicicleta não encontrada');
 
@@ -85,6 +95,11 @@ export async function createWorkOrder(payload) {
   }
   assertWorkOrderTransition('aberta', status);
 
+  const discount = assertCents(payload.discount || 0, 'desconto');
+  if (discount > 0 && !can(actor.role, 'sales')) {
+    throw httpError(403, WORK_ORDER_DISCOUNT_FORBIDDEN);
+  }
+
   const order = await WorkOrder.create({
     number: await nextNumber('workOrder', 'OS'),
     customer: customerId,
@@ -94,7 +109,7 @@ export async function createWorkOrder(payload) {
     diagnosis: payload.diagnosis || '',
     mechanic: payload.mechanic || '',
     notes: payload.notes || '',
-    discount: assertCents(payload.discount || 0, 'desconto'),
+    discount,
     scheduledAt: payload.scheduledAt || null,
     scheduleKind: payload.scheduleKind || 'servico',
   });
@@ -103,7 +118,7 @@ export async function createWorkOrder(payload) {
   return populateOrder(order._id);
 }
 
-export async function addPartToWorkOrder(orderId, { productId, quantity, unitPrice, operator = 'oficina' }) {
+export async function addPartToWorkOrder(orderId, { productId, quantity, unitPrice, operator = 'oficina', actor = {} }) {
   await runInTransaction(async (session) => {
     const order = await loadOrder(orderId, session);
     assertWorkOrderOpen(order, 'adicionar peça');
@@ -114,7 +129,14 @@ export async function addPartToWorkOrder(orderId, { productId, quantity, unitPri
     const product = await Product.findById(productId).session(session || undefined);
     if (!product) throw httpError(404, 'Produto não encontrado');
 
-    const price = unitPrice ?? product.salePrice;
+    let price = product.salePrice;
+    if (unitPrice !== undefined && unitPrice !== null && unitPrice !== '') {
+      const requested = assertCents(unitPrice, 'preço da peça');
+      if (requested !== product.salePrice && !can(actor.role, 'sales')) {
+        throw httpError(403, WORK_ORDER_PART_PRICE_FORBIDDEN);
+      }
+      if (can(actor.role, 'sales')) price = requested;
+    }
     assertCents(price, 'preço da peça');
     const total = multiplyCents(price, quantity);
     const quoted = isWorkOrderQuoteStatus(order.status);
@@ -252,9 +274,13 @@ export async function removeServiceFromWorkOrder(orderId, serviceItemId) {
   return populateOrder(orderId);
 }
 
-export async function updateWorkOrder(orderId, patch, operator = 'oficina') {
+export async function updateWorkOrder(orderId, patch, operator = 'oficina', actor = {}) {
   if (patch.status === 'cancelada') {
-    return cancelWorkOrder(orderId, operator);
+    return cancelWorkOrder(orderId, operator, actor);
+  }
+
+  if (patch.discount !== undefined && !can(actor.role, 'sales')) {
+    throw httpError(403, WORK_ORDER_DISCOUNT_FORBIDDEN);
   }
 
   let becameReady = false;
@@ -394,7 +420,10 @@ export async function addPaymentToWorkOrder(orderId, payment) {
     const order = await loadOrder(orderId, session);
     assertWorkOrderOpen(order, 'registrar pagamento');
     assertCents(payment.amount, 'pagamento da OS');
-    const status = payment.status || 'aprovado';
+    if (isGatewayPaymentMethod(payment.method)) {
+      throw httpError(400, WORK_ORDER_GATEWAY_PAYMENT_MESSAGE);
+    }
+    const status = initialSalePaymentStatus(payment.method);
     if (status === 'aprovado') await requireOpenRegister(session);
 
     recalcWorkOrder(order);
@@ -435,13 +464,16 @@ function hasApprovedLedgerPayment(order) {
   );
 }
 
-export async function cancelWorkOrder(orderId, operator = 'oficina') {
+export async function cancelWorkOrder(orderId, operator = 'oficina', actor = {}) {
   await runInTransaction(async (session) => {
     const current = await loadOrder(orderId, session);
     if (current.status === 'cancelada') return;
     if (current.status === 'entregue') throw httpError(400, 'OS entregue não pode ser cancelada');
 
     const needsReversal = hasApprovedLedgerPayment(current);
+    if (needsReversal && !can(actor.role, 'payments')) {
+      throw httpError(403, WORK_ORDER_PAID_CANCEL_FORBIDDEN);
+    }
     if (needsReversal) await requireOpenRegister(session);
 
     for (const part of current.parts) {

@@ -4,7 +4,7 @@ import { assertCents } from '../utils/money.js';
 const productSchema = new mongoose.Schema(
   {
     sku: { type: String, required: true, unique: true, trim: true, uppercase: true },
-    barcode: { type: String, default: '', trim: true, index: true },
+    barcode: { type: String, default: '', trim: true },
     name: { type: String, required: true, trim: true },
     description: { type: String, default: '' },
     category: { type: String, required: true, trim: true, index: true },
@@ -29,6 +29,14 @@ const productSchema = new mongoose.Schema(
 );
 
 productSchema.index({ name: 'text', sku: 'text', barcode: 'text', brand: 'text' });
+productSchema.index(
+  { barcode: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { barcode: { $type: 'string', $gt: '' } },
+    name: 'one_product_barcode',
+  },
+);
 
 productSchema.pre('validate', function validateMoney() {
   assertCents(this.costPrice, 'preço de custo');

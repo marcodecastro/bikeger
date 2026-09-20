@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { get, post } from '../lib/api';
 import { PAYMENT_METHODS } from '../lib/labels';
-import { addCartLine, cartTotals } from '../lib/cart';
+import { addCartLine, cartTotals, setCartLineQuantity } from '../lib/cart';
 import { formatBRL, multiplyCents } from '../lib/money';
 import { isOpenPixStatus, PIX_POLL_MS } from '../lib/paymentPoll';
 import { useBusy } from '../lib/useBusy';
@@ -248,11 +248,30 @@ export function Pos() {
                   value={item.quantity}
                   onChange={(event) => {
                     const quantity = Number(event.target.value);
-                    setCart((current) =>
-                      current.map((line) =>
-                        line.product._id === item.product._id ? { ...line, quantity } : line,
-                      ),
-                    );
+                    setCart((current) => {
+                      const result = setCartLineQuantity(
+                        current.map((line) => ({
+                          productId: line.product._id,
+                          name: line.product.name,
+                          quantity: line.quantity,
+                          unitPrice: line.unitPrice,
+                          available: line.product.availableStock ?? line.product.currentStock,
+                        })),
+                        item.product._id,
+                        quantity,
+                      );
+                      if (result.error) {
+                        setError(result.error);
+                        return current;
+                      }
+                      setError('');
+                      const nextQty =
+                        result.lines.find((line) => line.productId === item.product._id)?.quantity ??
+                        item.quantity;
+                      return current.map((line) =>
+                        line.product._id === item.product._id ? { ...line, quantity: nextQty } : line,
+                      );
+                    });
                   }}
                 />
                 <span className="money">{formatBRL(multiplyCents(item.unitPrice, item.quantity))}</span>

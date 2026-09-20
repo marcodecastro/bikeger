@@ -8,7 +8,7 @@ import {
   listCashMovements,
   openRegister,
   registerCashMovement,
-  withSummary,
+  withLedgerSummary,
 } from '../services/cashService.js';
 import { buildDayReportReceipt } from '../services/printerService.js';
 import { operatorName } from '../middleware/auth.js';
@@ -19,7 +19,7 @@ cashRouter.get(
   '/current',
   asyncHandler(async (_req, res) => {
     const register = await getOpenRegister();
-    res.json(withSummary(register));
+    res.json(await withLedgerSummary(register));
   }),
 );
 
@@ -41,7 +41,7 @@ cashRouter.get(
   '/',
   asyncHandler(async (_req, res) => {
     const registers = await CashRegister.find().sort({ openedAt: -1 }).limit(30);
-    res.json(registers.map(withSummary));
+    res.json(await Promise.all(registers.map((register) => withLedgerSummary(register))));
   }),
 );
 

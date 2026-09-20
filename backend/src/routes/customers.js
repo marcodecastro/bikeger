@@ -22,6 +22,12 @@ customersRouter.get(
         { document: rx },
         { email: rx },
       ];
+      const raw = Array.isArray(q) ? q[0] : q;
+      const digits = String(raw ?? '').replace(/\D/g, '');
+      if (digits.length >= 3) {
+        const digitRx = searchRegex(digits);
+        if (digitRx) filter.$or.push({ document: digitRx });
+      }
     }
     const customers = await Customer.find(filter).sort({ name: 1 }).limit(listLimit(req.query.limit));
     res.json(customers);
@@ -33,7 +39,10 @@ customersRouter.get(
   asyncHandler(async (req, res) => {
     const customer = await Customer.findById(req.params.id);
     if (!customer) throw httpError(404, 'Cliente não encontrado');
-    const history = await customerHistory(customer._id);
+    const history = await customerHistory(customer._id, {
+      salesLimit: req.query.salesLimit,
+      ordersLimit: req.query.ordersLimit,
+    });
     res.json(hideCostIfNeeded({ customer, ...history }, req.user));
   }),
 );
