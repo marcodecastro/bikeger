@@ -6,14 +6,16 @@ import {
   assertFrontendUrl,
   assertJwtConfig,
   assertSeedAllowed,
-  API_PUBLIC_URL_REQUIRED_MESSAGE,
   assertReplicaSet,
   REPLICA_SET_REQUIRED_MESSAGE,
   checkoutBackUrls,
   corsOrigin,
   DEV_FRONTEND_ORIGIN,
   FRONTEND_URL_REQUIRED_MESSAGE,
+  isAllowedFrontendOrigin,
   paymentReturnUrl,
+  PRODUCTION_API_ORIGIN,
+  PRODUCTION_FRONTEND_ORIGIN,
   publicApiUrl,
   redactMongoUri,
   SEED_BLOCKED_MESSAGE,
@@ -73,7 +75,7 @@ test('desenvolvimento deixa o seed correr', () => {
   process.env.NODE_ENV = previousEnv;
 });
 
-test('produção recusa subir sem FRONTEND_URL', () => {
+test('produção usa Vercel e Render quando FRONTEND_URL e API_PUBLIC_URL estão vazios', () => {
   const previousEnv = process.env.NODE_ENV;
   const previousSecret = process.env.JWT_SECRET;
   const previousOrigin = process.env.FRONTEND_URL;
@@ -81,24 +83,24 @@ test('produção recusa subir sem FRONTEND_URL', () => {
   process.env.NODE_ENV = 'production';
   process.env.JWT_SECRET = 'chave-longa-aleatoria-de-producao-bikeger';
   process.env.FRONTEND_URL = '';
+  process.env.API_PUBLIC_URL = '';
 
-  assert.throws(() => assertFrontendUrl(), (error) => error.message === FRONTEND_URL_REQUIRED_MESSAGE);
-  assert.throws(() => assertBootConfig(), /FRONTEND_URL é obrigatório/);
+  assert.doesNotThrow(() => assertFrontendUrl());
+  assert.doesNotThrow(() => assertBootConfig());
+  assert.equal(corsOrigin(), PRODUCTION_FRONTEND_ORIGIN);
+  assert.equal(publicApiUrl(), PRODUCTION_API_ORIGIN);
 
   process.env.FRONTEND_URL = '*';
-  assert.throws(() => assertFrontendUrl(), /FRONTEND_URL é obrigatório/);
+  assert.throws(() => assertFrontendUrl(), (error) => error.message === FRONTEND_URL_REQUIRED_MESSAGE);
 
   process.env.FRONTEND_URL = 'https://loja.bikeger.local';
-  process.env.API_PUBLIC_URL = '';
-  assert.throws(() => assertBootConfig(), /API_PUBLIC_URL é obrigatório/);
-  assert.throws(() => publicApiUrl(), (error) => error.message === API_PUBLIC_URL_REQUIRED_MESSAGE);
-
   process.env.API_PUBLIC_URL = 'http://localhost:4000';
   assert.throws(() => assertBootConfig(), /API_PUBLIC_URL é obrigatório/);
 
   process.env.API_PUBLIC_URL = 'https://api.bikeger.local';
   assert.doesNotThrow(() => assertBootConfig());
   assert.equal(corsOrigin(), 'https://loja.bikeger.local');
+  assert.equal(publicApiUrl(), 'https://api.bikeger.local');
 
   process.env.NODE_ENV = previousEnv;
   process.env.JWT_SECRET = previousSecret;
@@ -123,6 +125,21 @@ test('desenvolvimento não abre CORS para qualquer origem', () => {
   assert.equal(paymentReturnUrl(), 'https://loja.bikeger.local/pagamentos/retorno');
   assert.equal(checkoutBackUrls().success, 'https://loja.bikeger.local/pagamentos/retorno');
 
+  process.env.NODE_ENV = previousEnv;
+  process.env.FRONTEND_URL = previousOrigin;
+});
+
+test('produção libera o painel no Vercel e recusa origem aleatória', () => {
+  const previousEnv = process.env.NODE_ENV;
+  const previousOrigin = process.env.FRONTEND_URL;
+  process.env.NODE_ENV = 'production';
+  process.env.FRONTEND_URL = '';
+  assert.equal(isAllowedFrontendOrigin('https://bikeger.vercel.app'), true);
+  assert.equal(
+    isAllowedFrontendOrigin('https://bikeger-plhqae349-marco-de-castros-projects.vercel.app'),
+    true,
+  );
+  assert.equal(isAllowedFrontendOrigin('https://outra-loja.vercel.app'), false);
   process.env.NODE_ENV = previousEnv;
   process.env.FRONTEND_URL = previousOrigin;
 });

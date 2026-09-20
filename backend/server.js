@@ -7,7 +7,7 @@ import { errorHandler } from './src/middleware/errorHandler.js';
 import { securityHeaders } from './src/middleware/securityHeaders.js';
 import { requestIdMiddleware } from './src/utils/logger.js';
 import { ensureDefaultUsers } from './src/services/userService.js';
-import { assertBootConfig, corsOrigin, redactMongoUri } from './src/utils/security.js';
+import { assertBootConfig, corsAllowedOrigin, redactMongoUri } from './src/utils/security.js';
 import { transactionSupport } from './src/utils/transaction.js';
 import { startJobWorker } from './src/utils/jobs.js';
 
@@ -18,7 +18,7 @@ const PORT = Number(process.env.PORT) || 4000;
 
 app.use(securityHeaders());
 app.use(requestIdMiddleware);
-app.use(cors({ origin: corsOrigin() }));
+app.use(cors({ origin: corsAllowedOrigin() }));
 app.use(express.json({ limit: '5mb' }));
 
 app.get('/api/health', (_req, res) => {

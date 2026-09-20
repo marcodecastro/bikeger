@@ -1,5 +1,3 @@
-const API = '/api';
-
 export const REQUEST_TIMEOUT_MS = 60_000;
 export const REQUEST_TIMEOUT_MESSAGE = 'A requisição demorou demais. Tente de novo.';
 export const OS_CONFLICT_RE = /mudou em outra tela/i;
@@ -40,12 +38,18 @@ function requestSignal(timeoutMs: number, userSignal?: AbortSignal | null) {
   return AbortSignal.any([timeout, userSignal]);
 }
 
+export function apiBase() {
+  const origin = String(import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
+  if (!origin) return '/api';
+  return origin.endsWith('/api') ? origin : `${origin}/api`;
+}
+
 export async function request<T>(path: string, options?: RequestOptions): Promise<T> {
   const { timeoutMs = REQUEST_TIMEOUT_MS, signal: userSignal, headers, ...rest } = options ?? {};
 
   let res: Response;
   try {
-    res = await fetch(`${API}${path}`, {
+    res = await fetch(`${apiBase()}${path}`, {
       ...rest,
       signal: requestSignal(timeoutMs, userSignal),
       headers: {

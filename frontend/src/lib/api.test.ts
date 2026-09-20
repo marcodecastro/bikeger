@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { request, REQUEST_TIMEOUT_MESSAGE } from './api';
+import { apiBase, request, REQUEST_TIMEOUT_MESSAGE } from './api';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -20,6 +20,10 @@ describe('request', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it('no Vite local usa /api', () => {
+    expect(apiBase()).toBe('/api');
   });
 
   it('resolve o JSON quando a API responde', async () => {

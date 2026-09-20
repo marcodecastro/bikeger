@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { log, logError } from '../utils/logger.js';
+import { mongoUri } from '../config/db.js';
 
 const RETENTION_DAYS = 14;
 
@@ -9,9 +10,7 @@ export function backupDir() {
   return process.env.BACKUP_DIR || path.resolve(process.cwd(), 'backups');
 }
 
-export function mongoUri() {
-  return process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/bikeger';
-}
+export { mongoUri };
 
 function stamp(date = new Date()) {
   return date.toISOString().replace(/[:.]/g, '-').slice(0, 19);

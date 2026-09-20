@@ -57,15 +57,39 @@ export const FRONTEND_URL_REQUIRED_MESSAGE =
 export const INTERNAL_ERROR_MESSAGE = 'Erro interno do servidor';
 
 export const DEV_FRONTEND_ORIGIN = 'http://localhost:5174';
+export const PRODUCTION_FRONTEND_ORIGIN = 'https://bikeger.vercel.app';
+export const PRODUCTION_API_ORIGIN = 'https://bikeger.onrender.com';
+
+function stripSlash(value) {
+  return String(value || '').trim().replace(/\/$/, '');
+}
+
+function configuredFrontendOrigins() {
+  return String(process.env.FRONTEND_URL || '')
+    .split(',')
+    .map(stripSlash)
+    .filter((origin) => origin && origin !== '*' && origin !== 'true');
+}
 
 export function frontendOrigin() {
-  return String(process.env.FRONTEND_URL || '').trim().replace(/\/$/, '');
+  const listed = configuredFrontendOrigins();
+  if (listed.length) return listed[0];
+  if (isProduction()) return PRODUCTION_FRONTEND_ORIGIN;
+  return '';
+}
+
+function isLocalhostUrl(url) {
+  return /localhost|127\.0\.0\.1/i.test(url);
 }
 
 export function assertFrontendUrl() {
   if (!isProduction()) return;
+  const raw = stripSlash(process.env.FRONTEND_URL);
+  if (raw === '*' || raw === 'true' || isLocalhostUrl(raw)) {
+    throw new Error(FRONTEND_URL_REQUIRED_MESSAGE);
+  }
   const origin = frontendOrigin();
-  if (!origin || origin === '*' || origin === 'true') {
+  if (!origin || isLocalhostUrl(origin)) {
     throw new Error(FRONTEND_URL_REQUIRED_MESSAGE);
   }
 }
@@ -78,8 +102,8 @@ export const REPLICA_SET_REQUIRED_MESSAGE =
 
 export function assertPublicApiUrl() {
   if (!isProduction()) return;
-  const url = String(process.env.API_PUBLIC_URL || '').trim().replace(/\/$/, '');
-  if (!url || url === '*' || /localhost|127\.0\.0\.1/i.test(url)) {
+  const url = publicApiUrl();
+  if (!url || url === '*' || isLocalhostUrl(url)) {
     throw new Error(API_PUBLIC_URL_REQUIRED_MESSAGE);
   }
 }
@@ -103,6 +127,28 @@ export function corsOrigin() {
   return DEV_FRONTEND_ORIGIN;
 }
 
+export function isAllowedFrontendOrigin(origin) {
+  if (!origin) return true;
+  if (configuredFrontendOrigins().includes(origin)) return true;
+  if (origin === corsOrigin()) return true;
+  if (!isProduction()) return false;
+  try {
+    const { protocol, hostname } = new URL(origin);
+    if (protocol !== 'https:') return false;
+    if (hostname === 'bikeger.vercel.app') return true;
+    return hostname.startsWith('bikeger-') && hostname.endsWith('.vercel.app');
+  } catch {
+    return false;
+  }
+}
+
+export function corsAllowedOrigin() {
+  if (!isProduction()) return corsOrigin();
+  return (origin, callback) => {
+    callback(null, isAllowedFrontendOrigin(origin));
+  };
+}
+
 export function paymentReturnUrl() {
   return `${corsOrigin()}/pagamentos/retorno`;
 }
@@ -117,8 +163,8 @@ export function redactMongoUri(value) {
 }
 
 export function publicApiUrl() {
-  const url = String(process.env.API_PUBLIC_URL || '').trim().replace(/\/$/, '');
+  const url = stripSlash(process.env.API_PUBLIC_URL);
   if (url) return url;
-  if (isProduction()) throw new Error(API_PUBLIC_URL_REQUIRED_MESSAGE);
+  if (isProduction()) return PRODUCTION_API_ORIGIN;
   return `http://localhost:${process.env.PORT || 4000}`;
 }
