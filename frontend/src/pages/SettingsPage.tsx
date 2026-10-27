@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { get, put } from '../lib/api';
 import type { Settings } from '../types';
+import { readFileAsDataUrl } from '../lib/imageFile';
 import { BackupPanel } from '../components/BackupPanel';
 
 function previewNotice(template: string, storeName: string) {
@@ -10,15 +11,6 @@ function previewNotice(template: string, storeName: string) {
     .replaceAll('{os}', 'OS-00042')
     .replaceAll('{loja}', storeName || 'BikeGer')
     .replaceAll('{valor}', 'R$ 249,80');
-}
-
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
 }
 
 export function SettingsPage() {

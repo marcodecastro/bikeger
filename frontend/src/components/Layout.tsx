@@ -97,6 +97,9 @@ export function Layout() {
           ) : (
             <span className="muted">Oficina no turno</span>
           )}
+          <NavLink to="/conta" className="btn btn-ghost sidebar-exit">
+            Minha senha
+          </NavLink>
           <button
             type="button"
             className="btn btn-ghost sidebar-exit"

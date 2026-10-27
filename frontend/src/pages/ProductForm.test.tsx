@@ -107,6 +107,22 @@ describe('Ficha da peça', () => {
     expect(screen.getByRole('status')).toHaveTextContent(/Pode corrigir/);
   });
 
+  it('adiciona foto por URL na ficha', async () => {
+    const user = userEvent.setup();
+    put.mockResolvedValue({ ...product, images: ['https://loja.test/cabo.jpg', 'https://loja.test/cabo2.jpg'] });
+    renderForm('/produtos/p1');
+    const url = await screen.findByPlaceholderText('https://...');
+    await user.type(url, 'https://loja.test/cabo2.jpg');
+    await user.click(screen.getByRole('button', { name: 'Adicionar URL' }));
+    await user.click(screen.getByRole('button', { name: 'Salvar alterações' }));
+    expect(put).toHaveBeenCalledWith(
+      '/products/p1',
+      expect.objectContaining({
+        images: ['https://loja.test/cabo.jpg', 'https://loja.test/cabo2.jpg'],
+      }),
+    );
+  });
+
   it('salva alterações sem voltar para a lista', async () => {
     const user = userEvent.setup();
     put.mockResolvedValue({ ...product, name: 'Cabo inox revisado' });

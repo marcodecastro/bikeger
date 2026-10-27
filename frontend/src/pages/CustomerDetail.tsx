@@ -7,6 +7,13 @@ import { OS_STATUS } from '../lib/labels';
 import { formatBRL } from '../lib/money';
 import { Modal } from '../components/Modal';
 import { BikeFields } from '../components/BikeFields';
+import {
+  addressFromCustomer,
+  addressPayload,
+  emptyAddress,
+  CustomerAddressFields,
+  type CustomerAddressForm,
+} from '../components/CustomerAddressFields';
 
 const HISTORY_PAGE = 50;
 
@@ -36,6 +43,7 @@ export function CustomerDetail() {
   const [email, setEmail] = useState('');
   const [document, setDocument] = useState('');
   const [notes, setNotes] = useState('');
+  const [address, setAddress] = useState<CustomerAddressForm>(emptyAddress);
   const canEdit = can('customers');
 
   async function load(salesLimit = HISTORY_PAGE, ordersLimit = HISTORY_PAGE) {
@@ -71,6 +79,7 @@ export function CustomerDetail() {
     setEmail(data.customer.email || '');
     setDocument(data.customer.document || '');
     setNotes(data.customer.notes || '');
+    setAddress(addressFromCustomer(data.customer));
     setSaveError('');
     setSaved('');
   }
@@ -109,12 +118,14 @@ export function CustomerDetail() {
         email: email.trim(),
         document: document.trim(),
         notes: notes.trim(),
+        address: addressPayload(address),
       });
       setName(savedCustomer.name || '');
       setPhone(savedCustomer.phone || '');
       setEmail(savedCustomer.email || '');
       setDocument(savedCustomer.document || '');
       setNotes(savedCustomer.notes || '');
+      setAddress(addressFromCustomer(savedCustomer));
       setData((current) =>
         current ? { ...current, customer: { ...current.customer, ...savedCustomer } } : current,
       );
@@ -175,6 +186,11 @@ export function CustomerDetail() {
               CPF
               <input value={document} onChange={(event) => setDocument(event.target.value)} />
             </label>
+            <h3 style={{ gridColumn: '1 / -1', margin: '8px 0 0' }}>Endereço</h3>
+            <p className="muted" style={{ gridColumn: '1 / -1', margin: 0 }}>
+              A NFC-e usa a UF para o CFOP. Sem cidade e CEP a SEFAZ recusa ou emite errado.
+            </p>
+            <CustomerAddressFields address={address} onChange={setAddress} />
             <label className="field" style={{ gridColumn: '1 / -1' }}>
               Observações
               <textarea value={notes} onChange={(event) => setNotes(event.target.value)} />

@@ -5,7 +5,7 @@ import { customerHistory } from '../services/historyService.js';
 import { requireCapability } from '../middleware/auth.js';
 import { hideCostIfNeeded } from '../utils/hideCost.js';
 import { searchRegex } from '../utils/searchRegex.js';
-import { listLimit } from '../utils/listLimit.js';
+import { listLimit, listSkip } from '../utils/listLimit.js';
 
 export const customersRouter = Router();
 
@@ -29,7 +29,10 @@ customersRouter.get(
         if (digitRx) filter.$or.push({ document: digitRx });
       }
     }
-    const customers = await Customer.find(filter).sort({ name: 1 }).limit(listLimit(req.query.limit));
+    const customers = await Customer.find(filter)
+      .sort({ name: 1 })
+      .skip(listSkip(req.query.skip))
+      .limit(listLimit(req.query.limit));
     res.json(customers);
   }),
 );

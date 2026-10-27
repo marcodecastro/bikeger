@@ -9,6 +9,7 @@ import { useBusy } from '../lib/useBusy';
 import type { CatalogService, MpPixPayment, Product, Receipt, WorkOrder } from '../types';
 import { MoneyInput } from '../components/MoneyInput';
 import { ReceiptModal } from '../components/ReceiptModal';
+import { WorkOrderSheet } from '../components/WorkOrderSheet';
 import { EntitySearch } from '../components/EntitySearch';
 
 export function WorkOrderDetail() {
@@ -24,6 +25,9 @@ export function WorkOrderDetail() {
   const [payAmount, setPayAmount] = useState(0);
   const [pix, setPix] = useState<MpPixPayment | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [storeName, setStoreName] = useState('BikeGer');
+  const [storeLogo, setStoreLogo] = useState('');
   const [error, setError] = useState('');
   const { busy, run } = useBusy();
   const pixRef = useRef(pix);
@@ -49,6 +53,12 @@ export function WorkOrderDetail() {
     get<CatalogService[]>('/services?active=true').then(setServices).catch(() => undefined);
     get<{ mechanicNames: string[] }>('/work-orders/mechanics')
       .then((data) => setMechanicNames(data.mechanicNames || []))
+      .catch(() => undefined);
+    get<{ storeName?: string; storeLogo?: string }>('/auth/public-config')
+      .then((config) => {
+        setStoreName(config.storeName?.trim() || 'BikeGer');
+        setStoreLogo(config.storeLogo || '');
+      })
       .catch(() => undefined);
   }, [id]);
 
@@ -255,6 +265,9 @@ export function WorkOrderDetail() {
               Enviar orçamento
             </button>
           ) : null}
+          <button type="button" className="btn" onClick={() => setSheetOpen(true)}>
+            Imprimir OS / PDF
+          </button>
           <button
             type="button"
             className="btn"
@@ -602,6 +615,14 @@ export function WorkOrderDetail() {
         <p className="muted">Cliente avisado em {new Date(order.readyNotifiedAt).toLocaleString('pt-BR')}</p>
       ) : null}
       {receipt ? <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} /> : null}
+      {sheetOpen ? (
+        <WorkOrderSheet
+          order={order}
+          storeName={storeName}
+          storeLogo={storeLogo}
+          onClose={() => setSheetOpen(false)}
+        />
+      ) : null}
     </section>
   );
 }

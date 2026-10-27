@@ -4,17 +4,20 @@ import { nextNumber } from '../utils/ids.js';
 import { httpError } from '../utils/asyncHandler.js';
 import { adjustStockTo } from './stockService.js';
 import { runInTransaction } from '../utils/transaction.js';
-import { listLimit } from '../utils/listLimit.js';
+import { listLimit, listSkip } from '../utils/listLimit.js';
 
 function assertOpen(count) {
   if (count.status === 'aberta') return;
   throw httpError(400, 'Essa contagem já foi encerrada');
 }
 
-export async function listInventoryCounts({ limit, status } = {}) {
+export async function listInventoryCounts({ limit, skip, status } = {}) {
   const filter = {};
   if (status) filter.status = status;
-  return InventoryCount.find(filter).sort({ createdAt: -1 }).limit(listLimit(limit));
+  return InventoryCount.find(filter)
+    .sort({ createdAt: -1 })
+    .skip(listSkip(skip))
+    .limit(listLimit(limit));
 }
 
 export async function getInventoryCount(id) {

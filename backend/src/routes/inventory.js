@@ -16,7 +16,11 @@ export const inventoryRouter = Router();
 inventoryRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    const counts = await listInventoryCounts({ limit: req.query.limit, status: req.query.status });
+    const counts = await listInventoryCounts({
+      limit: req.query.limit,
+      skip: req.query.skip,
+      status: req.query.status,
+    });
     res.json(counts);
   }),
 );

@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom';
 import { get } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { CATEGORIES } from '../lib/labels';
+import { pageHasMore, pagedPath } from '../lib/listPage';
 import { formatBRL } from '../lib/money';
 import type { Product, ShelfLabel } from '../types';
+import { LoadMore } from '../components/LoadMore';
 import { ReceiptModal } from '../components/ReceiptModal';
 
 export function Products() {
@@ -15,17 +17,24 @@ export function Products() {
   const [category, setCategory] = useState('');
   const [label, setLabel] = useState<ShelfLabel | null>(null);
   const [loadError, setLoadError] = useState('');
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  function extra() {
+    const params: Record<string, string> = {};
+    if (q) params.q = q;
+    if (category) params.category = category;
+    return params;
+  }
 
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (q) params.set('q', q);
-    if (category) params.set('category', category);
     const delay = q.trim() ? 160 : 0;
     const timer = window.setTimeout(() => {
-      get<Product[]>(`/products?${params.toString()}`)
+      get<Product[]>(pagedPath('/products', 0, extra()))
         .then((list) => {
           setLoadError('');
           setProducts(list);
+          setHasMore(pageHasMore(list));
         })
         .catch((err: unknown) => {
           setLoadError(err instanceof Error ? err.message : 'Falha ao carregar os produtos');
@@ -33,6 +42,21 @@ export function Products() {
     }, delay);
     return () => window.clearTimeout(timer);
   }, [q, category]);
+
+  async function loadMore() {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      setLoadError('');
+      const list = await get<Product[]>(pagedPath('/products', products.length, extra()));
+      setProducts((current) => [...current, ...list]);
+      setHasMore(pageHasMore(list));
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Falha ao carregar os produtos');
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   return (
     <section className="page">
@@ -121,6 +145,7 @@ export function Products() {
             </tbody>
           </table>
         )}
+        <LoadMore hasMore={hasMore} loading={loadingMore} onClick={() => void loadMore()} />
       </article>
       {label ? <ReceiptModal receipt={label} title="Etiqueta 40×30" onClose={() => setLabel(null)} /> : null}
     </section>

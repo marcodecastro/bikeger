@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { get } from '../lib/api';
 import { OS_STATUS } from '../lib/labels';
+import { downloadTextFile, monthReportCsv, monthReportFileName } from '../lib/monthReportCsv';
 import { formatBRL } from '../lib/money';
 import type { MonthReport } from '../types';
 
@@ -44,6 +45,20 @@ export function Reports() {
             Ano
             <input type="number" min={2020} value={year} onChange={(event) => setYear(Number(event.target.value))} />
           </label>
+          <button
+            type="button"
+            className="btn"
+            disabled={!report}
+            onClick={() => {
+              if (!report) return;
+              downloadTextFile(monthReportFileName(report), monthReportCsv(report));
+            }}
+          >
+            Exportar CSV
+          </button>
+          <button type="button" className="btn" disabled={!report} onClick={() => window.print()}>
+            Imprimir / PDF
+          </button>
         </div>
       </div>
 
@@ -51,7 +66,10 @@ export function Reports() {
       {!report ? (
         <p>Carregando...</p>
       ) : (
-        <>
+        <div className="print-area">
+          <h3 className="muted">
+            Relatório {String(report.month).padStart(2, '0')}/{report.year}
+          </h3>
           <div className="grid grid-4">
             <article className="card kpi">
               <span>Vendas pagas</span>
@@ -99,7 +117,7 @@ export function Reports() {
               </p>
             </article>
           </div>
-        </>
+        </div>
       )}
     </section>
   );

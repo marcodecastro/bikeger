@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { authenticate } from '../services/userService.js';
+import { authenticate, changeOwnPassword } from '../services/userService.js';
 import { publicUser, requireAuth, signToken } from '../middleware/auth.js';
 import { loginRateLimit } from '../middleware/loginRateLimit.js';
 import { shouldSeedDemoUsers } from '../utils/security.js';
@@ -35,6 +35,15 @@ authRouter.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     res.json(req.user);
+  }),
+);
+
+authRouter.post(
+  '/change-password',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const user = await changeOwnPassword(req.user.id, req.body, { actor: req.user });
+    res.json(publicUser(user));
   }),
 );
 

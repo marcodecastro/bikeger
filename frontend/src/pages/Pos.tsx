@@ -4,32 +4,35 @@ import { PAYMENT_METHODS } from '../lib/labels';
 import { addCartLine, cartTotals, setCartLineQuantity } from '../lib/cart';
 import { formatBRL, multiplyCents } from '../lib/money';
 import { isOpenPixStatus, PIX_POLL_MS } from '../lib/paymentPoll';
+import {
+  clearPosDraft,
+  emptyPosDraft,
+  posDraftIsEmpty,
+  readPosDraft,
+  writePosDraft,
+  type PosCartItem,
+} from '../lib/posDraft';
 import { useBusy } from '../lib/useBusy';
 import type { CashRegister, Customer, MpPixPayment, Product, Receipt, Sale } from '../types';
 import { MoneyInput } from '../components/MoneyInput';
 import { ReceiptModal } from '../components/ReceiptModal';
 import { EntitySearch } from '../components/EntitySearch';
 
-interface CartItem {
-  product: Product;
-  quantity: number;
-  unitPrice: number;
-}
-
 export function Pos() {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<Product[]>([]);
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [customerId, setCustomerId] = useState('');
-  const [customerLabel, setCustomerLabel] = useState('');
-  const [discount, setDiscount] = useState(0);
-  const [method, setMethod] = useState('pix');
-  const [cashReceived, setCashReceived] = useState(0);
+  const [draft] = useState(() => readPosDraft() || emptyPosDraft());
+  const [cart, setCart] = useState<PosCartItem[]>(draft.cart);
+  const [customerId, setCustomerId] = useState(draft.customerId);
+  const [customerLabel, setCustomerLabel] = useState(draft.customerLabel);
+  const [discount, setDiscount] = useState(draft.discount);
+  const [method, setMethod] = useState(draft.method);
+  const [cashReceived, setCashReceived] = useState(draft.cashReceived);
   const [error, setError] = useState('');
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [cashOpen, setCashOpen] = useState<boolean | null>(null);
-  const [pix, setPix] = useState<MpPixPayment | null>(null);
-  const [pendingSaleId, setPendingSaleId] = useState('');
+  const [pix, setPix] = useState<MpPixPayment | null>(draft.pix);
+  const [pendingSaleId, setPendingSaleId] = useState(draft.pendingSaleId);
   const { busy, run } = useBusy();
   const pixRef = useRef(pix);
   pixRef.current = pix;
@@ -41,6 +44,21 @@ export function Pos() {
       .then((register) => setCashOpen(Boolean(register?._id)))
       .catch(() => setCashOpen(null));
   }, []);
+
+  useEffect(() => {
+    const next = {
+      cart,
+      customerId,
+      customerLabel,
+      discount,
+      method,
+      cashReceived,
+      pendingSaleId,
+      pix,
+    };
+    if (posDraftIsEmpty(next)) clearPosDraft();
+    else writePosDraft(next);
+  }, [cart, customerId, customerLabel, discount, method, cashReceived, pendingSaleId, pix]);
 
   useEffect(() => {
     if (!query.trim()) {
@@ -74,6 +92,7 @@ export function Pos() {
           const sale = await get<Sale>(`/sales/${pendingSaleId}`);
           if (sale.status === 'paga') {
             const printed = await get<Receipt>(`/sales/${sale._id}/receipt`);
+            clearPosDraft();
             setCart([]);
             setDiscount(0);
             setCashReceived(0);
@@ -156,6 +175,7 @@ export function Pos() {
         });
         if (sale.status === 'paga') {
           const printed = await get<Receipt>(`/sales/${sale._id}/receipt`);
+          clearPosDraft();
           setCart([]);
           setDiscount(0);
           setCashReceived(0);
@@ -215,9 +235,16 @@ export function Pos() {
                   {hits.slice(0, 8).map((product) => (
                     <tr key={product._id}>
                       <td>
-                        <strong>{product.name}</strong>
-                        <div className="muted">
-                          {product.sku} · livre {product.availableStock ?? product.currentStock}
+                        <div className="pos-hit">
+                          {product.images?.[0] ? (
+                            <img className="pos-thumb" src={product.images[0]} alt="" />
+                          ) : null}
+                          <div>
+                            <strong>{product.name}</strong>
+                            <div className="muted">
+                              {product.sku} · livre {product.availableStock ?? product.currentStock}
+                            </div>
+                          </div>
                         </div>
                       </td>
                       <td className="money">{formatBRL(product.salePrice)}</td>
@@ -237,9 +264,14 @@ export function Pos() {
             {cart.length === 0 ? <p className="empty">Carrinho vazio.</p> : null}
             {cart.map((item) => (
               <div className="cart-line" key={item.product._id}>
-                <div>
-                  <strong>{item.product.name}</strong>
-                  <div className="muted">{item.product.sku}</div>
+                <div className="pos-hit">
+                  {item.product.images?.[0] ? (
+                    <img className="pos-thumb" src={item.product.images[0]} alt="" />
+                  ) : null}
+                  <div>
+                    <strong>{item.product.name}</strong>
+                    <div className="muted">{item.product.sku}</div>
+                  </div>
                 </div>
                 <input
                   className="qty-input"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allowedOsStatuses, isOsTerminal, OS_KANBAN, COUNTER_PAYMENT_METHODS } from './labels';
+import { allowedOsStatuses, isOsTerminal, OS_KANBAN, COUNTER_PAYMENT_METHODS, BRAZIL_UFS } from './labels';
 
 describe('máquina de status da OS', () => {
   it('oficina pode pular etapa e voltar, mas só entrega a partir de pronta', () => {
@@ -24,6 +24,12 @@ describe('máquina de status da OS', () => {
     expect(OS_KANBAN).toContain('orcamento');
     expect(OS_KANBAN).toContain('cancelada');
     expect(OS_KANBAN).not.toContain('entregue');
+  });
+
+  it('lista as 27 UFs para o endereço da NFC-e', () => {
+    expect(BRAZIL_UFS).toHaveLength(27);
+    expect(BRAZIL_UFS).toContain('SP');
+    expect(BRAZIL_UFS).toContain('DF');
   });
 
   it('recebimento no balcão não inclui PIX nem Mercado Pago', () => {

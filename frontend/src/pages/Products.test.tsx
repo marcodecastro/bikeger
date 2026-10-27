@@ -49,8 +49,44 @@ describe('Produtos', () => {
       vi.advanceTimersByTime(160);
     });
 
-    expect(get).toHaveBeenCalledWith('/products?q=cor');
+    expect(get).toHaveBeenCalledWith('/products?q=cor&limit=50&skip=0');
     expect(get.mock.calls.filter((call) => String(call[0]).startsWith('/products')).length).toBe(2);
+  });
+
+  it('pede a próxima página em Ver mais', async () => {
+    const page = Array.from({ length: 50 }, (_, i) => ({
+      _id: `p${i}`,
+      sku: `SKU-${i}`,
+      name: `Peça ${i}`,
+      brand: 'X',
+      category: 'Transmissão',
+      currentStock: 1,
+      minStock: 0,
+      unit: 'UN',
+      salePrice: 100,
+      costPrice: 50,
+    }));
+    get.mockResolvedValueOnce(page);
+    get.mockResolvedValueOnce([{ ...page[0], _id: 'p50', sku: 'SKU-50', name: 'Peça extra' }]);
+
+    render(
+      <MemoryRouter>
+        <Products />
+      </MemoryRouter>,
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver mais' }));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(get).toHaveBeenCalledWith('/products?limit=50&skip=50');
+    expect(screen.getByText('Peça extra')).toBeInTheDocument();
   });
 
   it('oferece Editar na peça quando o usuário pode gravar', async () => {

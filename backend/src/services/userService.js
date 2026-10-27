@@ -106,3 +106,19 @@ export async function updateUser(id, patch, { actor } = {}) {
   await user.save();
   return user;
 }
+
+export async function changeOwnPassword(userId, { currentPassword, newPassword }, { actor } = {}) {
+  const user = await User.findById(userId);
+  if (!user || !user.active) throw httpError(404, 'Usuário não encontrado');
+  if (!String(currentPassword || '')) throw httpError(400, 'Informe a senha atual');
+  const ok = await verifyPassword(String(currentPassword), user.passwordHash);
+  if (!ok) throw httpError(400, 'Senha atual não confere');
+  user.passwordHash = await hashPassword(newPassword);
+  await user.save();
+  await recordAudit({
+    action: 'user.password_changed',
+    actor: actor || user,
+    target: user,
+  });
+  return user;
+}

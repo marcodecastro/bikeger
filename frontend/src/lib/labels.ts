@@ -34,6 +34,31 @@ export function allowedOsStatuses(from: string) {
   return [...open, 'cancelada'];
 }
 
+export const SALE_STATUS: Record<string, string> = {
+  aberta: 'Aberta',
+  paga: 'Paga',
+  cancelada: 'Cancelada',
+  devolvida: 'Devolvida',
+};
+
+export const STOCK_TYPES: Record<string, string> = {
+  compra: 'Compra',
+  ajuste: 'Ajuste',
+  venda: 'Venda',
+  venda_cancelada: 'Venda cancelada',
+  os: 'OS',
+  os_estorno: 'OS estorno',
+  devolucao: 'Devolução',
+  reserva: 'Reserva',
+  reserva_liberada: 'Reserva liberada',
+};
+
+export const INVENTORY_STATUS: Record<string, string> = {
+  aberta: 'Aberta',
+  aplicada: 'Aplicada',
+  cancelada: 'Cancelada',
+};
+
 export const PAYMENT_METHODS: Record<string, string> = {
   dinheiro: 'Dinheiro',
   pix: 'PIX',
@@ -73,3 +98,33 @@ export const CATEGORIES = [
 ];
 
 export const UNITS = ['UN', 'PAR', 'KIT', 'M', 'L'];
+
+export const BRAZIL_UFS = [
+  'AC',
+  'AL',
+  'AP',
+  'AM',
+  'BA',
+  'CE',
+  'DF',
+  'ES',
+  'GO',
+  'MA',
+  'MT',
+  'MS',
+  'MG',
+  'PA',
+  'PB',
+  'PR',
+  'PE',
+  'PI',
+  'RJ',
+  'RN',
+  'RS',
+  'RO',
+  'RR',
+  'SC',
+  'SP',
+  'SE',
+  'TO',
+] as const;

@@ -2,9 +2,17 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { get, post } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { pageHasMore, pagedPath } from '../lib/listPage';
 import type { Customer } from '../types';
+import { LoadMore } from '../components/LoadMore';
 import { Modal } from '../components/Modal';
 import { BikeFields } from '../components/BikeFields';
+import {
+  addressPayload,
+  CustomerAddressFields,
+  emptyAddress,
+  type CustomerAddressForm,
+} from '../components/CustomerAddressFields';
 
 export function Customers() {
   const { can } = useAuth();
@@ -16,17 +24,21 @@ export function Customers() {
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [document, setDocument] = useState('');
+  const [address, setAddress] = useState<CustomerAddressForm>(emptyAddress);
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [type, setType] = useState('mtb');
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   async function load() {
     try {
       setLoadError('');
-      const list = await get<Customer[]>(`/customers${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+      const list = await get<Customer[]>(pagedPath('/customers', 0, q ? { q } : {}));
       setCustomers(list);
+      setHasMore(pageHasMore(list));
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Falha ao carregar os clientes');
     }
@@ -36,10 +48,31 @@ export function Customers() {
     void load();
   }, [q]);
 
+  async function loadMore() {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      setLoadError('');
+      const list = await get<Customer[]>(pagedPath('/customers', customers.length, q ? { q } : {}));
+      setCustomers((current) => [...current, ...list]);
+      setHasMore(pageHasMore(list));
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Falha ao carregar os clientes');
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
   async function create() {
     try {
       setError('');
-      const customer = await post<Customer>('/customers', { name, phone, email, document });
+      const customer = await post<Customer>('/customers', {
+        name,
+        phone,
+        email,
+        document,
+        address: addressPayload(address),
+      });
       if (brand.trim() && model.trim()) {
         await post('/bikes', { customer: customer._id, brand: brand.trim(), model: model.trim(), type });
       }
@@ -48,6 +81,7 @@ export function Customers() {
       setPhone('');
       setEmail('');
       setDocument('');
+      setAddress(emptyAddress);
       setBrand('');
       setModel('');
       setType('mtb');
@@ -111,6 +145,7 @@ export function Customers() {
             </tbody>
           </table>
         )}
+        <LoadMore hasMore={hasMore} loading={loadingMore} onClick={() => void loadMore()} />
       </article>
       {open ? (
         <Modal title="Novo cliente" onClose={() => setOpen(false)}>
@@ -131,6 +166,13 @@ export function Customers() {
               CPF
               <input value={document} onChange={(event) => setDocument(event.target.value)} />
             </label>
+            <h3 style={{ margin: '8px 0 0' }}>Endereço</h3>
+            <p className="muted" style={{ margin: 0 }}>
+              A NFC-e usa a UF para o CFOP. Pode completar depois na ficha.
+            </p>
+            <div className="grid grid-2">
+              <CustomerAddressFields address={address} onChange={setAddress} />
+            </div>
             <h3 style={{ margin: '8px 0 0' }}>Bicicleta (opcional)</h3>
             <p className="muted" style={{ margin: 0 }}>
               Se já souber a bike, cadastre agora. Dá para incluir depois na ficha.

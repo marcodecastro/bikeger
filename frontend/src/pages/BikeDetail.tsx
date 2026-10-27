@@ -91,7 +91,12 @@ export function BikeDetail() {
             {data.bike.serialNumber ? ` · série ${data.bike.serialNumber}` : ''}
           </p>
         </div>
-        <span className="badge">{data.openOrders} OS abertas</span>
+        <div className="row page-head-actions">
+          <Link className="btn" to="/bikes">
+            Voltar à lista
+          </Link>
+          <span className="badge">{data.openOrders} OS abertas</span>
+        </div>
       </div>
 
       <div className="grid grid-2">

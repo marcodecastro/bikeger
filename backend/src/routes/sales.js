@@ -4,23 +4,30 @@ import { asyncHandler, httpError } from '../utils/asyncHandler.js';
 import { cancelSale, createSale, returnSale } from '../services/saleService.js';
 import { buildReceipt } from '../services/printerService.js';
 import { operatorName } from '../middleware/auth.js';
-import { listLimit } from '../utils/listLimit.js';
+import { listLimit, listSkip } from '../utils/listLimit.js';
+import { searchRegex } from '../utils/searchRegex.js';
 
 export const salesRouter = Router();
 
 salesRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    const { status, customer, from, to } = req.query;
+    const { status, customer, from, to, q } = req.query;
     const filter = {};
     if (status) filter.status = status;
     if (customer) filter.customer = customer;
+    const rx = searchRegex(q);
+    if (rx) filter.number = rx;
     if (from || to) {
       filter.createdAt = {};
       if (from) filter.createdAt.$gte = new Date(from);
       if (to) filter.createdAt.$lte = new Date(to);
     }
-    const sales = await Sale.find(filter).populate('customer').sort({ createdAt: -1 }).limit(listLimit(req.query.limit));
+    const sales = await Sale.find(filter)
+      .populate('customer')
+      .sort({ createdAt: -1 })
+      .skip(listSkip(req.query.skip))
+      .limit(listLimit(req.query.limit));
     res.json(sales);
   }),
 );

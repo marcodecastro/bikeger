@@ -30,6 +30,7 @@ export function Workshop() {
   const [model, setModel] = useState('');
   const [type, setType] = useState('mtb');
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
   const { busy, run } = useBusy();
 
   const searchCustomers = useCallback(
@@ -38,7 +39,12 @@ export function Workshop() {
   );
 
   async function load() {
-    setBoard(await get<WorkOrderBoard>('/work-orders/board'));
+    try {
+      setLoadError('');
+      setBoard(await get<WorkOrderBoard>('/work-orders/board'));
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Falha ao carregar a oficina');
+    }
   }
 
   useEffect(() => {
@@ -56,7 +62,12 @@ export function Workshop() {
       setModel('');
       return;
     }
-    get<Bike[]>(`/bikes?customer=${customerId}`).then(setBikes).catch(() => undefined);
+    get<Bike[]>(`/bikes?customer=${customerId}`)
+      .then(setBikes)
+      .catch((err: unknown) => {
+        setBikes([]);
+        setError(err instanceof Error ? err.message : 'Falha ao carregar as bikes');
+      });
   }, [customerId]);
 
   async function create() {
@@ -103,6 +114,11 @@ export function Workshop() {
           Nova OS
         </button>
       </div>
+      {loadError ? (
+        <p className="error" role="alert">
+          {loadError}
+        </p>
+      ) : null}
 
       <div className="kanban">
         {columns.map((status) => (

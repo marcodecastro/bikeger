@@ -18,6 +18,7 @@ export function Bikes() {
   const [model, setModel] = useState('');
   const [type, setType] = useState('mtb');
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const searchCustomers = useCallback(
     (query: string) => get<Customer[]>(`/customers?q=${encodeURIComponent(query)}`),
@@ -25,12 +26,17 @@ export function Bikes() {
   );
 
   async function load() {
-    const list = await get<Bike[]>(`/bikes${q ? `?q=${encodeURIComponent(q)}` : ''}`);
-    setBikes(list);
+    try {
+      setLoadError('');
+      const list = await get<Bike[]>(`/bikes${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+      setBikes(list);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Falha ao carregar as bikes');
+    }
   }
 
   useEffect(() => {
-    void load().catch(() => undefined);
+    void load();
   }, [q]);
 
   async function create() {
@@ -68,37 +74,50 @@ export function Bikes() {
           Nova bike
         </button>
       </div>
+      {loadError ? (
+        <p className="error" role="alert">
+          {loadError}
+        </p>
+      ) : null}
       <label className="field" style={{ maxWidth: 360, marginBottom: 16 }}>
         Buscar
         <input value={q} onChange={(event) => setQ(event.target.value)} />
       </label>
       <article className="card table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Bike</th>
-              <th>Cliente</th>
-              <th>Tipo</th>
-              <th>Série</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {bikes.map((bike) => (
-              <tr key={bike._id}>
-                <td>
-                  {bike.brand} {bike.model}
-                </td>
-                <td>{typeof bike.customer === 'object' ? bike.customer.name : ''}</td>
-                <td>{BIKE_TYPES[bike.type] || bike.type}</td>
-                <td>{bike.serialNumber}</td>
-                <td>
-                  <Link to={`/bikes/${bike._id}`}>Histórico</Link>
-                </td>
+        {bikes.length === 0 && !loadError ? (
+          <p className="empty">Nenhuma bike cadastrada.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Bike</th>
+                <th>Cliente</th>
+                <th>Tipo</th>
+                <th>Série</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {bikes.map((bike) => (
+                <tr key={bike._id}>
+                  <td>
+                    <Link to={`/bikes/${bike._id}`}>
+                      {bike.brand} {bike.model}
+                    </Link>
+                  </td>
+                  <td>{typeof bike.customer === 'object' ? bike.customer.name : ''}</td>
+                  <td>{BIKE_TYPES[bike.type] || bike.type}</td>
+                  <td>{bike.serialNumber}</td>
+                  <td>
+                    <Link className="btn" to={`/bikes/${bike._id}`}>
+                      Editar
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </article>
       {open ? (
         <Modal title="Nova bicicleta" onClose={() => setOpen(false)}>

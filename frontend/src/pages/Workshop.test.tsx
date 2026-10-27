@@ -23,6 +23,20 @@ describe('Oficina', () => {
     });
   });
 
+  it('mostra o erro quando o quadro não carrega', async () => {
+    get.mockImplementation(async (path: string) => {
+      if (path === '/work-orders/board') throw new Error('Falha ao listar a oficina');
+      if (path === '/work-orders/mechanics') return { mechanicNames: ['Oficina'] };
+      return [];
+    });
+    render(
+      <MemoryRouter>
+        <Workshop />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('Falha ao listar a oficina');
+  });
+
   it('não abre duas OS no clique duplo', async () => {
     const user = userEvent.setup();
     let resolveCreate: ((value: unknown) => void) | undefined;

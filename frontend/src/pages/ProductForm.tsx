@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { get, post, put } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { imageFileToDataUrl } from '../lib/imageFile';
 import { CATEGORIES, UNITS } from '../lib/labels';
 import type { Product, Supplier, ShelfLabel } from '../types';
 import { MoneyInput } from '../components/MoneyInput';
@@ -23,7 +24,7 @@ interface FormState {
   location: string;
   supplier: string;
   active: boolean;
-  images: string;
+  images: string[];
   ncm: string;
   cfop: string;
 }
@@ -44,7 +45,7 @@ const empty: FormState = {
   location: '',
   supplier: '',
   active: true,
-  images: '',
+  images: [],
   ncm: '87149990',
   cfop: '5102',
 };
@@ -66,7 +67,7 @@ function productToForm(product: Product): FormState {
     location: product.location || '',
     supplier: typeof product.supplier === 'object' && product.supplier ? product.supplier._id : '',
     active: product.active !== false,
-    images: Array.isArray(product.images) ? product.images.join('\n') : '',
+    images: Array.isArray(product.images) ? product.images : [],
     ncm: product.ncm || '87149990',
     cfop: product.cfop || '5102',
   };
@@ -85,6 +86,7 @@ export function ProductForm() {
   const [loadError, setLoadError] = useState('');
   const [saved, setSaved] = useState('');
   const [label, setLabel] = useState<ShelfLabel | null>(null);
+  const [imageUrl, setImageUrl] = useState('');
   const isNew = !id || id === 'novo';
 
   useEffect(() => {
@@ -122,10 +124,7 @@ export function ProductForm() {
         ...form,
         sku: form.sku.toUpperCase(),
         supplier: form.supplier || null,
-        images: form.images
-          .split('\n')
-          .map((line) => line.trim())
-          .filter(Boolean),
+        images: form.images,
       };
       if (isNew) {
         const created = await post<Product>('/products', payload);
@@ -260,10 +259,75 @@ export function ProductForm() {
             <option value="0">Inativo</option>
           </select>
         </label>
-        <label className="field" style={{ gridColumn: '1 / -1' }}>
-          Imagens (uma URL por linha)
-          <textarea value={form.images} onChange={(event) => set('images', event.target.value)} />
-        </label>
+        <div className="field" style={{ gridColumn: '1 / -1' }}>
+          <span>Fotos da peça</span>
+          <p className="muted" style={{ margin: '4px 0 8px' }}>
+            PNG, JPEG ou WebP até 250 KB. Até 4 fotos — o PDV mostra a primeira.
+          </p>
+          {form.images.length ? (
+            <div className="photo-list">
+              {form.images.map((src) => (
+                <div className="photo-thumb" key={src.slice(0, 48)}>
+                  <img src={src} alt="" />
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost photo-remove"
+                      onClick={() => set('images', form.images.filter((item) => item !== src))}
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {canEdit && form.images.length < 4 ? (
+            <div className="row" style={{ marginTop: 8 }}>
+              <label className="btn">
+                Enviar foto
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  aria-label="Enviar foto"
+                  hidden
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = '';
+                    if (!file) return;
+                    void imageFileToDataUrl(file)
+                      .then((dataUrl) => {
+                        setError('');
+                        set('images', [...form.images, dataUrl]);
+                      })
+                      .catch((err: unknown) => {
+                        setError(err instanceof Error ? err.message : 'Não foi possível ler a foto');
+                      });
+                  }}
+                />
+              </label>
+              <label className="field field-grow">
+                Ou cole um link https
+                <input
+                  value={imageUrl}
+                  onChange={(event) => setImageUrl(event.target.value)}
+                  placeholder="https://..."
+                />
+              </label>
+              <button
+                type="button"
+                className="btn"
+                disabled={!imageUrl.trim()}
+                onClick={() => {
+                  set('images', [...form.images, imageUrl.trim()]);
+                  setImageUrl('');
+                }}
+              >
+                Adicionar URL
+              </button>
+            </div>
+          ) : null}
+        </div>
         {error ? (
           <p className="error" role="alert">
             {error}

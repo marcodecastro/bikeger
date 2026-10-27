@@ -6,7 +6,8 @@ import { assertCents } from '../utils/money.js';
 import { requireCapability } from '../middleware/auth.js';
 import { hideCostIfNeeded } from '../utils/hideCost.js';
 import { searchRegex } from '../utils/searchRegex.js';
-import { listLimit } from '../utils/listLimit.js';
+import { listLimit, listSkip } from '../utils/listLimit.js';
+import { normalizeProductImages } from '../utils/storeLogo.js';
 
 export const productsRouter = Router();
 
@@ -35,6 +36,7 @@ productsRouter.get(
     const products = await Product.find(filter)
       .populate('supplier')
       .sort({ name: 1 })
+      .skip(listSkip(req.query.skip))
       .limit(listLimit(req.query.limit, 300));
 
     res.json(products.map((product) => hideCostIfNeeded(product, req.user)));
@@ -92,6 +94,9 @@ export function pickProductBody(body, { allowInitialStock = false } = {}) {
   }
   if (allowInitialStock && body?.currentStock !== undefined) {
     picked.currentStock = body.currentStock;
+  }
+  if (picked.images !== undefined) {
+    picked.images = normalizeProductImages(picked.images);
   }
   return picked;
 }

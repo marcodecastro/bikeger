@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pos } from './Pos';
+import { writePosDraft } from '../lib/posDraft';
 import type { Product } from '../types';
 
 const get = vi.fn();
@@ -34,6 +35,7 @@ const product: Product = {
 
 describe('PDV', () => {
   beforeEach(() => {
+    localStorage.clear();
     get.mockReset();
     post.mockReset();
     get.mockImplementation(async (path: string) => {
@@ -73,6 +75,22 @@ describe('PDV', () => {
         payments: [{ method: 'dinheiro', amount: 15990 }],
       }),
     );
+  });
+
+  it('restaura o carrinho gravado depois de um F5', async () => {
+    writePosDraft({
+      cart: [{ product, quantity: 1, unitPrice: 15990 }],
+      customerId: '',
+      customerLabel: '',
+      discount: 0,
+      method: 'pix',
+      cashReceived: 0,
+      pendingSaleId: '',
+      pix: null,
+    });
+    render(<Pos />);
+    expect(await screen.findByText('Corrente SRAM')).toBeInTheDocument();
+    expect(screen.queryByText('Carrinho vazio.')).not.toBeInTheDocument();
   });
 
   it('não finaliza com o caixa fechado', async () => {

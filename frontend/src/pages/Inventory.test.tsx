@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Inventory } from './Inventory';
 import type { InventoryCount } from '../types';
@@ -41,6 +41,25 @@ describe('Inventário', () => {
     get.mockImplementation(async (path: string) => {
       if (String(path).startsWith('/inventory')) return [openCount];
       return [];
+    });
+  });
+
+  it('mostra o erro quando a contagem aberta não carrega', async () => {
+    get.mockRejectedValue(new Error('Falha ao listar o inventário'));
+    render(<Inventory />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Falha ao listar o inventário');
+  });
+
+  it('lista o histórico e confirma aplicar no modal', async () => {
+    post.mockResolvedValue({ ...openCount, status: 'aplicada', appliedAt: '2026-09-20T13:00:00.000Z' });
+    render(<Inventory />);
+    expect(await screen.findByText('Contagens anteriores')).toBeInTheDocument();
+    expect(screen.getAllByText('INV-00001').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar no estoque' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent(/vira a verdade do estoque/);
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar e aplicar' }));
+    await waitFor(() => {
+      expect(post).toHaveBeenCalledWith('/inventory/inv1/apply', {});
     });
   });
 

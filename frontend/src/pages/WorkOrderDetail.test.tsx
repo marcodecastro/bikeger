@@ -86,6 +86,7 @@ describe('OS pronta', () => {
     );
 
     expect(await screen.findByRole('heading', { name: 'OS-00001' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Imprimir OS / PDF' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Avisar no WhatsApp' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Registrar' })).not.toBeInTheDocument();
     expect(screen.getByText(/O balcão registra o pagamento/)).toBeInTheDocument();

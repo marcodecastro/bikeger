@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Sales } from './Sales';
@@ -40,6 +40,37 @@ describe('Vendas', () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText(/Nenhuma venda ainda/)).toBeInTheDocument();
+  });
+
+  it('pede a próxima página em Ver mais', async () => {
+    const page = Array.from({ length: 50 }, (_, i) => ({
+      ...sale,
+      _id: `s${i}`,
+      number: `VD-${String(i).padStart(5, '0')}`,
+    }));
+    get.mockResolvedValueOnce(page);
+    get.mockResolvedValueOnce([{ ...sale, _id: 's50', number: 'VD-00050' }]);
+    render(
+      <MemoryRouter>
+        <Sales />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver mais' }));
+    expect(await screen.findByText('VD-00050')).toBeInTheDocument();
+    expect(get).toHaveBeenCalledWith('/sales?limit=50&skip=50');
+  });
+
+  it('filtra por status na lista', async () => {
+    get.mockResolvedValue([sale]);
+    render(
+      <MemoryRouter>
+        <Sales />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('link', { name: 'VD-00001' });
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'paga' } });
+    expect(await screen.findByRole('link', { name: 'VD-00001' })).toBeInTheDocument();
+    expect(get.mock.calls.some((call) => String(call[0]).includes('status=paga'))).toBe(true);
   });
 
   it('abre o cupom pelo número e pelo botão', async () => {

@@ -142,6 +142,50 @@ describe('Ficha do cliente', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Cadastro atualizado.');
   });
 
+  it('salva o endereço usado na NFC-e', async () => {
+    const user = userEvent.setup();
+    put.mockResolvedValue({
+      ...customer,
+      address: {
+        street: 'Rua das Bicicletas',
+        number: '100',
+        neighborhood: 'Centro',
+        city: 'São Paulo',
+        state: 'SP',
+        zip: '01310100',
+      },
+    });
+    render(
+      <MemoryRouter initialEntries={['/clientes/c1']}>
+        <Routes>
+          <Route path="/clientes/:id" element={<CustomerDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await user.type(await screen.findByLabelText('Rua'), 'Rua das Bicicletas');
+    await user.type(screen.getByLabelText('Número'), '100');
+    await user.type(screen.getByLabelText('Bairro'), 'Centro');
+    await user.type(screen.getByLabelText('Cidade'), 'São Paulo');
+    await user.selectOptions(screen.getByLabelText('UF'), 'SP');
+    await user.type(screen.getByLabelText('CEP'), '01310100');
+    await user.click(screen.getByRole('button', { name: 'Salvar alterações' }));
+
+    expect(put).toHaveBeenCalledWith(
+      '/customers/c1',
+      expect.objectContaining({
+        address: {
+          street: 'Rua das Bicicletas',
+          number: '100',
+          neighborhood: 'Centro',
+          city: 'São Paulo',
+          state: 'SP',
+          zip: '01310100',
+        },
+      }),
+    );
+  });
+
   it('mostra o erro quando a ficha não carrega', async () => {
     get.mockReset();
     get.mockRejectedValue(new Error('Cliente não encontrado'));

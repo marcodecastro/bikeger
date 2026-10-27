@@ -19,19 +19,26 @@ export function Agenda() {
   const [weekStart, setWeekStart] = useState(() => new Date().toISOString());
   const [agenda, setAgenda] = useState<AgendaData | null>(null);
   const [notices, setNotices] = useState<ReadyNotice[]>([]);
+  const [loadError, setLoadError] = useState('');
 
   async function load(from = weekStart) {
-    const [board, pending] = await Promise.all([
-      get<AgendaData>(`/agenda?from=${encodeURIComponent(from)}`),
-      get<ReadyNotice[]>('/notifications?status=pendente'),
-    ]);
-    setAgenda(board);
-    setNotices(pending);
-    setWeekStart(board.from);
+    try {
+      setLoadError('');
+      const board = await get<AgendaData>(`/agenda?from=${encodeURIComponent(from)}`);
+      setAgenda(board);
+      setWeekStart(board.from);
+      try {
+        setNotices(await get<ReadyNotice[]>('/notifications?status=pendente'));
+      } catch {
+        setNotices([]);
+      }
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Falha ao carregar a agenda');
+    }
   }
 
   useEffect(() => {
-    void load().catch(() => undefined);
+    void load();
   }, []);
 
   const title = useMemo(() => {
@@ -40,6 +47,17 @@ export function Agenda() {
     const end = new Date(new Date(agenda.to).getTime() - 1).toLocaleDateString('pt-BR');
     return `${start} — ${end}`;
   }, [agenda]);
+
+  if (!agenda && loadError) {
+    return (
+      <section className="page">
+        <h2>Agenda</h2>
+        <p className="error" role="alert">
+          {loadError}
+        </p>
+      </section>
+    );
+  }
 
   if (!agenda) return <section className="page">Carregando agenda...</section>;
 
@@ -66,6 +84,11 @@ export function Agenda() {
           </button>
         </div>
       </div>
+      {loadError ? (
+        <p className="error" role="alert">
+          {loadError}
+        </p>
+      ) : null}
 
       <p className="muted">{title}</p>
 

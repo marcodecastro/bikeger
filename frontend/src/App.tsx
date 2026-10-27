@@ -31,6 +31,7 @@ const Cash = lazy(() => import('./pages/Cash').then((m) => ({ default: m.Cash })
 const Audit = lazy(() => import('./pages/Audit').then((m) => ({ default: m.Audit })));
 const Users = lazy(() => import('./pages/Users').then((m) => ({ default: m.Users })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const Account = lazy(() => import('./pages/Account').then((m) => ({ default: m.Account })));
 const PaymentReturn = lazy(() =>
   import('./pages/PaymentReturn').then((m) => ({ default: m.PaymentReturn })),
 );
@@ -167,6 +168,7 @@ export function App() {
                   </RequireRole>
                 }
               />
+              <Route path="/conta" element={<Account />} />
               <Route path="/pagamentos/retorno" element={<PaymentReturn />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
