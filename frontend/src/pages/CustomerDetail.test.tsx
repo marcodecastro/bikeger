@@ -6,11 +6,13 @@ import { CustomerDetail } from './CustomerDetail';
 import type { CustomerHistory } from '../types';
 
 const get = vi.fn();
+const put = vi.fn();
 const can = vi.fn();
 
 vi.mock('../lib/api', () => ({
   get: (...args: unknown[]) => get(...args),
   post: vi.fn(),
+  put: (...args: unknown[]) => put(...args),
 }));
 
 vi.mock('../lib/auth', () => ({
@@ -62,6 +64,7 @@ function history(overrides: Partial<CustomerHistory> = {}): CustomerHistory {
 describe('Ficha do cliente', () => {
   beforeEach(() => {
     get.mockReset();
+    put.mockReset();
     can.mockReset();
     can.mockReturnValue(true);
     get.mockResolvedValueOnce(history()).mockResolvedValueOnce(
@@ -102,6 +105,41 @@ describe('Ficha do cliente', () => {
     await user.click(screen.getByRole('button', { name: 'Ver mais compras' }));
     expect(get).toHaveBeenCalledWith('/customers/c1?salesLimit=51&ordersLimit=50');
     expect(await screen.findByText('VD-2')).toBeInTheDocument();
+  });
+
+  it('salva nome, telefone e CPF na ficha', async () => {
+    const user = userEvent.setup();
+    put.mockResolvedValue({
+      ...customer,
+      name: 'Ana Lima',
+      phone: '11999990000',
+      document: '39053344705',
+    });
+    render(
+      <MemoryRouter initialEntries={['/clientes/c1']}>
+        <Routes>
+          <Route path="/clientes/:id" element={<CustomerDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByLabelText('Nome')).toHaveValue('Ana');
+    await user.clear(screen.getByLabelText('Nome'));
+    await user.type(screen.getByLabelText('Nome'), 'Ana Lima');
+    await user.clear(screen.getByLabelText('Telefone'));
+    await user.type(screen.getByLabelText('Telefone'), '11999990000');
+    await user.type(screen.getByLabelText('CPF'), '39053344705');
+    await user.click(screen.getByRole('button', { name: 'Salvar alterações' }));
+
+    expect(put).toHaveBeenCalledWith(
+      '/customers/c1',
+      expect.objectContaining({
+        name: 'Ana Lima',
+        phone: '11999990000',
+        document: '39053344705',
+      }),
+    );
+    expect(await screen.findByRole('status')).toHaveTextContent('Cadastro atualizado.');
   });
 
   it('mostra o erro quando a ficha não carrega', async () => {

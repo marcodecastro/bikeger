@@ -20,10 +20,16 @@ export function Customers() {
   const [model, setModel] = useState('');
   const [type, setType] = useState('mtb');
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   async function load() {
-    const list = await get<Customer[]>(`/customers${q ? `?q=${encodeURIComponent(q)}` : ''}`);
-    setCustomers(list);
+    try {
+      setLoadError('');
+      const list = await get<Customer[]>(`/customers${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+      setCustomers(list);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Falha ao carregar os clientes');
+    }
   }
 
   useEffect(() => {
@@ -65,33 +71,46 @@ export function Customers() {
           </button>
         ) : null}
       </div>
+      {loadError ? (
+        <p className="error" role="alert">
+          {loadError}
+        </p>
+      ) : null}
       <label className="field" style={{ maxWidth: 360, marginBottom: 16 }}>
         Buscar
         <input value={q} onChange={(event) => setQ(event.target.value)} />
       </label>
       <article className="card table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Nome</th>
-              <th>Telefone</th>
-              <th>Documento</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {customers.map((customer) => (
-              <tr key={customer._id}>
-                <td>{customer.name}</td>
-                <td>{customer.phone}</td>
-                <td>{customer.document}</td>
-                <td>
-                  <Link to={`/clientes/${customer._id}`}>Ficha</Link>
-                </td>
+        {customers.length === 0 && !loadError ? (
+          <p className="empty">Nenhum cliente encontrado.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Telefone</th>
+                <th>Documento</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {customers.map((customer) => (
+                <tr key={customer._id}>
+                  <td>
+                    <Link to={`/clientes/${customer._id}`}>{customer.name}</Link>
+                  </td>
+                  <td>{customer.phone}</td>
+                  <td>{customer.document}</td>
+                  <td>
+                    <Link className="btn" to={`/clientes/${customer._id}`}>
+                      {can('customers') ? 'Editar' : 'Ficha'}
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </article>
       {open ? (
         <Modal title="Novo cliente" onClose={() => setOpen(false)}>

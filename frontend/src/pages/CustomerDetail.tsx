@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { get, post } from '../lib/api';
+import { get, post, put } from '../lib/api';
+import type { Customer, CustomerHistory } from '../types';
 import { useAuth } from '../lib/auth';
 import { OS_STATUS } from '../lib/labels';
 import { formatBRL } from '../lib/money';
-import type { CustomerHistory } from '../types';
 import { Modal } from '../components/Modal';
 import { BikeFields } from '../components/BikeFields';
 
@@ -28,6 +28,15 @@ export function CustomerDetail() {
   const [loadingMore, setLoadingMore] = useState<'sales' | 'orders' | null>(null);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [saved, setSaved] = useState('');
+  const [formId, setFormId] = useState('');
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [document, setDocument] = useState('');
+  const [notes, setNotes] = useState('');
+  const canEdit = can('customers');
 
   async function load(salesLimit = HISTORY_PAGE, ordersLimit = HISTORY_PAGE) {
     if (!id) return;
@@ -55,6 +64,17 @@ export function CustomerDetail() {
 
   if (!data) return <section className="page">Carregando ficha...</section>;
 
+  if (formId !== data.customer._id) {
+    setFormId(data.customer._id);
+    setName(data.customer.name || '');
+    setPhone(data.customer.phone || '');
+    setEmail(data.customer.email || '');
+    setDocument(data.customer.document || '');
+    setNotes(data.customer.notes || '');
+    setSaveError('');
+    setSaved('');
+  }
+
   async function addBike() {
     if (!data) return;
     try {
@@ -71,6 +91,36 @@ export function CustomerDetail() {
       await load(Math.max(HISTORY_PAGE, data.sales.length), Math.max(HISTORY_PAGE, data.orders.length));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao cadastrar a bike');
+    }
+  }
+
+  async function saveCustomer() {
+    if (!id || !data) return;
+    try {
+      setSaveError('');
+      setSaved('');
+      if (!name.trim()) {
+        setSaveError('Informe o nome do cliente.');
+        return;
+      }
+      const savedCustomer = await put<Customer>(`/customers/${id}`, {
+        name: name.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        document: document.trim(),
+        notes: notes.trim(),
+      });
+      setName(savedCustomer.name || '');
+      setPhone(savedCustomer.phone || '');
+      setEmail(savedCustomer.email || '');
+      setDocument(savedCustomer.document || '');
+      setNotes(savedCustomer.notes || '');
+      setData((current) =>
+        current ? { ...current, customer: { ...current.customer, ...savedCustomer } } : current,
+      );
+      setSaved('Cadastro atualizado.');
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Falha ao salvar o cliente');
     }
   }
 
@@ -104,6 +154,52 @@ export function CustomerDetail() {
           Cadastrar bike
         </button>
       </div>
+
+      {canEdit ? (
+        <article className="card" style={{ marginBottom: 16 }}>
+          <h3>Cadastro</h3>
+          <div className="grid grid-2">
+            <label className="field">
+              Nome
+              <input value={name} onChange={(event) => setName(event.target.value)} />
+            </label>
+            <label className="field">
+              Telefone
+              <input value={phone} onChange={(event) => setPhone(event.target.value)} />
+            </label>
+            <label className="field">
+              E-mail
+              <input value={email} onChange={(event) => setEmail(event.target.value)} />
+            </label>
+            <label className="field">
+              CPF
+              <input value={document} onChange={(event) => setDocument(event.target.value)} />
+            </label>
+            <label className="field" style={{ gridColumn: '1 / -1' }}>
+              Observações
+              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
+            </label>
+          </div>
+          {saveError ? (
+            <p className="error" role="alert">
+              {saveError}
+            </p>
+          ) : null}
+          {saved ? (
+            <p className="muted" role="status">
+              {saved}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ marginTop: 12 }}
+            onClick={() => void saveCustomer()}
+          >
+            Salvar alterações
+          </button>
+        </article>
+      ) : null}
 
       <div className="grid grid-3">
         <article className="card kpi">
