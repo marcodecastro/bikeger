@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { get, post, put } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { CATEGORIES, UNITS } from '../lib/labels';
@@ -49,14 +49,41 @@ const empty: FormState = {
   cfop: '5102',
 };
 
+function productToForm(product: Product): FormState {
+  return {
+    sku: product.sku || '',
+    barcode: product.barcode || '',
+    name: product.name || '',
+    description: product.description || '',
+    category: product.category || 'Transmissão',
+    brand: product.brand || '',
+    model: product.model || '',
+    unit: product.unit || 'UN',
+    costPrice: product.costPrice ?? 0,
+    salePrice: product.salePrice ?? 0,
+    currentStock: product.currentStock ?? 0,
+    minStock: product.minStock ?? 0,
+    location: product.location || '',
+    supplier: typeof product.supplier === 'object' && product.supplier ? product.supplier._id : '',
+    active: product.active !== false,
+    images: Array.isArray(product.images) ? product.images.join('\n') : '',
+    ncm: product.ncm || '87149990',
+    cfop: product.cfop || '5102',
+  };
+}
+
 export function ProductForm() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const justCreated = Boolean((location.state as { justCreated?: boolean } | null)?.justCreated);
   const { can } = useAuth();
   const canEdit = can('products.write');
   const [form, setForm] = useState<FormState>(empty);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [saved, setSaved] = useState('');
   const [label, setLabel] = useState<ShelfLabel | null>(null);
   const isNew = !id || id === 'novo';
 
@@ -66,38 +93,31 @@ export function ProductForm() {
 
   useEffect(() => {
     get<Supplier[]>('/suppliers').then(setSuppliers).catch(() => undefined);
-    if (!isNew) {
-      get<Product>(`/products/${id}`).then((product) => {
-        setForm({
-          sku: product.sku,
-          barcode: product.barcode,
-          name: product.name,
-          description: product.description,
-          category: product.category,
-          brand: product.brand,
-          model: product.model,
-          unit: product.unit,
-          costPrice: product.costPrice ?? 0,
-          salePrice: product.salePrice,
-          currentStock: product.currentStock,
-          minStock: product.minStock,
-          location: product.location,
-          supplier: typeof product.supplier === 'object' && product.supplier ? product.supplier._id : '',
-          active: product.active,
-          images: product.images.join('\n'),
-          ncm: product.ncm || '87149990',
-          cfop: product.cfop || '5102',
-        });
-      });
+    setError('');
+    setSaved(justCreated ? 'Peça cadastrada. Pode corrigir os campos e salvar de novo.' : '');
+    setLoadError('');
+    if (isNew) {
+      setForm(empty);
+      return;
     }
-  }, [id, isNew]);
+    get<Product>(`/products/${id}`)
+      .then((product) => {
+        setForm(productToForm(product));
+      })
+      .catch((err: unknown) => {
+        setLoadError(err instanceof Error ? err.message : 'Falha ao carregar a peça');
+      });
+  }, [id, isNew, justCreated]);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
+    setSaved('');
   }
 
   async function save() {
     try {
+      setError('');
+      setSaved('');
       const payload = {
         ...form,
         sku: form.sku.toUpperCase(),
@@ -107,9 +127,18 @@ export function ProductForm() {
           .map((line) => line.trim())
           .filter(Boolean),
       };
-      if (isNew) await post('/products', payload);
-      else await put(`/products/${id}`, payload);
-      navigate('/produtos');
+      if (isNew) {
+        const created = await post<Product>('/products', payload);
+        if (!created?._id) {
+          navigate('/produtos');
+          return;
+        }
+        navigate(`/produtos/${created._id}`, { replace: true, state: { justCreated: true } });
+        return;
+      }
+      const updated = await put<Product>(`/products/${id}`, payload);
+      setForm(productToForm(updated));
+      setSaved('Alterações salvas.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao salvar');
     }
@@ -122,7 +151,15 @@ export function ProductForm() {
           <h2>{isNew ? 'Nova peça' : form.name || 'Editar peça'}</h2>
           <p>Custo e venda entram como reais no campo, mas o sistema grava centavos inteiros.</p>
         </div>
+        <Link className="btn" to="/produtos">
+          Voltar à lista
+        </Link>
       </div>
+      {loadError ? (
+        <p className="error" role="alert">
+          {loadError}
+        </p>
+      ) : null}
 
       <article className="card grid grid-2">
         <fieldset className="contents" disabled={!canEdit} style={{ display: 'contents' }}>
@@ -227,11 +264,20 @@ export function ProductForm() {
           Imagens (uma URL por linha)
           <textarea value={form.images} onChange={(event) => set('images', event.target.value)} />
         </label>
-        {error ? <p className="error">{error}</p> : null}
-        {canEdit ? (
+        {error ? (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {saved ? (
+          <p className="muted" role="status">
+            {saved}
+          </p>
+        ) : null}
+        {canEdit && !loadError ? (
           <div className="row">
             <button type="button" className="btn btn-primary" onClick={() => void save()}>
-              Salvar
+              {isNew ? 'Cadastrar peça' : 'Salvar alterações'}
             </button>
             {!isNew ? (
               <button
@@ -243,7 +289,7 @@ export function ProductForm() {
               </button>
             ) : null}
           </div>
-        ) : !isNew ? (
+        ) : !isNew && !loadError ? (
           <button
             type="button"
             className="btn"

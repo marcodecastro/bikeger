@@ -286,9 +286,15 @@ a {
 .page-head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 16px;
   margin-bottom: 20px;
+}
+
+.page-head-actions {
+  justify-content: flex-end;
+  max-width: 100%;
 }
 
 .page-head h2 {
@@ -348,6 +354,21 @@ a {
 .table-wrap {
   overflow-x: auto;
   max-width: 100%;
+}
+
+table a {
+  color: var(--heading);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--line);
+}
+
+table a:hover {
+  text-decoration-color: var(--amber);
+}
+
+table a.btn {
+  text-decoration: none;
 }
 
 .stack-list {

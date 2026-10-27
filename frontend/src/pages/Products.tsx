@@ -9,10 +9,12 @@ import { ReceiptModal } from '../components/ReceiptModal';
 
 export function Products() {
   const { can } = useAuth();
+  const canEdit = can('products.write');
   const [products, setProducts] = useState<Product[]>([]);
   const [q, setQ] = useState('');
   const [category, setCategory] = useState('');
   const [label, setLabel] = useState<ShelfLabel | null>(null);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -20,7 +22,14 @@ export function Products() {
     if (category) params.set('category', category);
     const delay = q.trim() ? 160 : 0;
     const timer = window.setTimeout(() => {
-      get<Product[]>(`/products?${params.toString()}`).then(setProducts).catch(() => undefined);
+      get<Product[]>(`/products?${params.toString()}`)
+        .then((list) => {
+          setLoadError('');
+          setProducts(list);
+        })
+        .catch((err: unknown) => {
+          setLoadError(err instanceof Error ? err.message : 'Falha ao carregar os produtos');
+        });
     }, delay);
     return () => window.clearTimeout(timer);
   }, [q, category]);
@@ -38,6 +47,11 @@ export function Products() {
           </Link>
         ) : null}
       </div>
+      {loadError ? (
+        <p className="error" role="alert">
+          {loadError}
+        </p>
+      ) : null}
 
       <div className="row" style={{ marginBottom: 16 }}>
         <label className="field field-grow">
@@ -56,51 +70,57 @@ export function Products() {
       </div>
 
       <article className="card table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>SKU</th>
-              <th>Produto</th>
-              <th>Estoque</th>
-              {can('sales') ? <th>Custo</th> : null}
-              <th>Venda</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {products.map((product) => (
-              <tr key={product._id}>
-                <td className="money">{product.sku}</td>
-                <td>
-                  {product.name}
-                  <div className="muted">
-                    {product.brand} · {product.category}
-                  </div>
-                </td>
-                <td>
-                  {product.currentStock} {product.unit}
-                  {product.currentStock <= product.minStock ? (
-                    <div className="badge warn">mín. {product.minStock}</div>
-                  ) : null}
-                </td>
-                {can('sales') ? <td className="money">{formatBRL(product.costPrice ?? 0)}</td> : null}
-                <td className="money">{formatBRL(product.salePrice)}</td>
-                <td>
-                  <div className="row">
-                    <Link to={`/produtos/${product._id}`}>Abrir</Link>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      onClick={() => void get<ShelfLabel>(`/products/${product._id}/label`).then(setLabel)}
-                    >
-                      Etiqueta
-                    </button>
-                  </div>
-                </td>
+        {products.length === 0 && !loadError ? (
+          <p className="empty">Nenhuma peça encontrada.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Produto</th>
+                <th>Estoque</th>
+                {can('sales') ? <th>Custo</th> : null}
+                <th>Venda</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {products.map((product) => (
+                <tr key={product._id}>
+                  <td className="money">{product.sku}</td>
+                  <td>
+                    <Link to={`/produtos/${product._id}`}>{product.name}</Link>
+                    <div className="muted">
+                      {product.brand} · {product.category}
+                    </div>
+                  </td>
+                  <td>
+                    {product.currentStock} {product.unit}
+                    {product.currentStock <= product.minStock ? (
+                      <div className="badge warn">mín. {product.minStock}</div>
+                    ) : null}
+                  </td>
+                  {can('sales') ? <td className="money">{formatBRL(product.costPrice ?? 0)}</td> : null}
+                  <td className="money">{formatBRL(product.salePrice)}</td>
+                  <td>
+                    <div className="row">
+                      <Link className="btn" to={`/produtos/${product._id}`}>
+                        {canEdit ? 'Editar' : 'Abrir'}
+                      </Link>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => void get<ShelfLabel>(`/products/${product._id}/label`).then(setLabel)}
+                      >
+                        Etiqueta
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </article>
       {label ? <ReceiptModal receipt={label} title="Etiqueta 40×30" onClose={() => setLabel(null)} /> : null}
     </section>

@@ -29,7 +29,19 @@ export function SaleDetail() {
     void load().catch((err: Error) => setError(err.message));
   }, [id]);
 
-  if (!sale) return <section className="page">{error || 'Carregando venda...'}</section>;
+  if (!sale) {
+    return (
+      <section className="page">
+        {error ? (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        ) : (
+          'Carregando venda...'
+        )}
+      </section>
+    );
+  }
 
   const canReturn = sale.status === 'paga';
 
@@ -42,7 +54,7 @@ export function SaleDetail() {
             {sale.customer?.name || 'Cliente avulso'} · {sale.status}
           </p>
         </div>
-        <div className="row">
+        <div className="row page-head-actions">
           <button
             type="button"
             className="btn"
@@ -81,6 +93,11 @@ export function SaleDetail() {
           ) : null}
         </div>
       </div>
+      {error ? (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      ) : null}
       <article className="card">
         <div className="table-wrap">
         <table>
@@ -183,7 +200,6 @@ export function SaleDetail() {
       <article className="card" style={{ marginTop: 16 }}>
         <h3>Documento fiscal</h3>
         <p className="muted">O cupom da térmica não substitui NFC-e.</p>
-        {error ? <p className="error">{error}</p> : null}
         {fiscal.length ? (
           fiscal.map((doc) => (
             <div className="stack-item stack-item-static" key={doc._id}>

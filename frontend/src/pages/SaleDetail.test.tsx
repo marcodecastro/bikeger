@@ -127,6 +127,13 @@ describe('Venda', () => {
     expect(screen.queryByRole('button', { name: 'Confirmar e estornar' })).not.toBeInTheDocument();
   });
 
+  it('mostra o erro quando a venda não carrega', async () => {
+    get.mockRejectedValue(new Error('Venda não encontrada'));
+    renderSale();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Venda não encontrada');
+    expect(screen.queryByText('Carregando venda...')).not.toBeInTheDocument();
+  });
+
   it('pede confirmação antes de cancelar a NFC-e', async () => {
     const user = userEvent.setup();
     get.mockImplementation(async (path: string) => {

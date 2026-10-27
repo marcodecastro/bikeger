@@ -52,4 +52,51 @@ describe('Produtos', () => {
     expect(get).toHaveBeenCalledWith('/products?q=cor');
     expect(get.mock.calls.filter((call) => String(call[0]).startsWith('/products')).length).toBe(2);
   });
+
+  it('oferece Editar na peça quando o usuário pode gravar', async () => {
+    get.mockResolvedValue([
+      {
+        _id: 'p1',
+        sku: 'CAB-01',
+        name: 'Cabo de câmbio',
+        brand: 'Jagwire',
+        category: 'Transmissão',
+        currentStock: 4,
+        minStock: 2,
+        unit: 'UN',
+        salePrice: 1990,
+        costPrice: 800,
+      },
+    ]);
+
+    render(
+      <MemoryRouter>
+        <Products />
+      </MemoryRouter>,
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(screen.getByRole('link', { name: 'Editar' })).toHaveAttribute('href', '/produtos/p1');
+    expect(screen.getByRole('link', { name: 'Cabo de câmbio' })).toHaveAttribute('href', '/produtos/p1');
+    expect(screen.queryByRole('link', { name: 'Abrir' })).not.toBeInTheDocument();
+  });
+
+  it('mostra o erro quando a lista não carrega', async () => {
+    get.mockRejectedValue(new Error('Falha ao listar produtos'));
+
+    render(
+      <MemoryRouter>
+        <Products />
+      </MemoryRouter>,
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Falha ao listar produtos');
+  });
 });

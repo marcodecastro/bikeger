@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { lazy, Suspense, useLayoutEffect } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, RequireAuth, RequireRole } from './lib/auth';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
@@ -39,9 +39,23 @@ function PageFallback() {
   return <section className="page">Carregando...</section>;
 }
 
+function ScrollToTop() {
+  const { pathname } = useLocation();
+
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+    document.querySelectorAll('.content, main').forEach((node) => {
+      if (node instanceof HTMLElement) node.scrollTop = 0;
+    });
+  }, [pathname]);
+
+  return null;
+}
+
 export function App() {
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <AuthProvider>
         <Suspense fallback={<PageFallback />}>
           <Routes>
