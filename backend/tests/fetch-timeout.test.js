@@ -12,11 +12,18 @@ import { sendWhatsAppCloud } from '../src/utils/whatsappCloud.js';
 
 function hangingFetch(_url, { signal }) {
   return new Promise((_, reject) => {
+    // AbortSignal.timeout() usa timer unref; o node:test encerra o arquivo
+    // se nada mais segura o event loop (isolamento por processo no CI).
+    const keepAlive = setTimeout(() => {}, 2 ** 30);
+    const fail = (reason) => {
+      clearTimeout(keepAlive);
+      reject(reason);
+    };
     if (signal?.aborted) {
-      reject(signal.reason);
+      fail(signal.reason);
       return;
     }
-    signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+    signal?.addEventListener('abort', () => fail(signal.reason), { once: true });
   });
 }
 
