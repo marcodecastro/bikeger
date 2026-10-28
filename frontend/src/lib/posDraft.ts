@@ -42,6 +42,10 @@ function isCartItem(value: unknown): value is PosCartItem {
   return isProduct(item.product) && Number.isInteger(item.quantity) && item.quantity > 0 && Number.isInteger(item.unitPrice);
 }
 
+function integerOrZero(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) ? value : 0;
+}
+
 export function emptyPosDraft(): PosDraft {
   return { ...empty, cart: [] };
 }
@@ -56,9 +60,9 @@ export function readPosDraft(): PosDraft | null {
       cart: parsed.cart,
       customerId: typeof parsed.customerId === 'string' ? parsed.customerId : '',
       customerLabel: typeof parsed.customerLabel === 'string' ? parsed.customerLabel : '',
-      discount: Number.isInteger(parsed.discount) ? parsed.discount : 0,
+      discount: integerOrZero(parsed.discount),
       method: typeof parsed.method === 'string' && parsed.method ? parsed.method : 'pix',
-      cashReceived: Number.isInteger(parsed.cashReceived) ? parsed.cashReceived : 0,
+      cashReceived: integerOrZero(parsed.cashReceived),
       pendingSaleId: typeof parsed.pendingSaleId === 'string' ? parsed.pendingSaleId : '',
       pix: parsed.pix && typeof parsed.pix === 'object' ? parsed.pix : null,
     };
