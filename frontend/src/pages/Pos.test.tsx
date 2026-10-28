@@ -42,6 +42,9 @@ describe('PDV', () => {
       if (path === '/customers' || path.startsWith('/customers?')) return [];
       if (path === '/cash/current') return { _id: 'caixa1', status: 'aberto', expectedCash: 0 };
       if (path.startsWith('/products?')) return [product];
+      if (path.startsWith('/services')) {
+        return [{ _id: 'svc1', name: 'Regulagem de câmbio', description: '', category: '', price: 4500, estimatedMinutes: 30, active: true }];
+      }
       if (path.includes('/receipt')) {
         return {
           text: 'CUPOM',
@@ -59,6 +62,7 @@ describe('PDV', () => {
     post.mockResolvedValue({ _id: 'sale1', status: 'paga' });
     render(<Pos />);
 
+    expect(await screen.findByRole('heading', { name: 'Cupom de balcão' })).toBeInTheDocument();
     await user.type(screen.getByPlaceholderText('SKU, código ou nome'), 'corrente');
     const add = await screen.findByRole('button', { name: 'Adicionar' });
     await user.click(add);
@@ -71,15 +75,43 @@ describe('PDV', () => {
     expect(post).toHaveBeenCalledWith(
       '/sales',
       expect.objectContaining({
-        items: [{ product: 'p1', quantity: 1, unitPrice: 15990 }],
+        customer: null,
+        items: [{ kind: 'produto', product: 'p1', quantity: 1, unitPrice: 15990 }],
         payments: [{ method: 'dinheiro', amount: 15990 }],
+      }),
+    );
+  });
+
+  it('lança serviço e peça no mesmo cupom sem cliente', async () => {
+    const user = userEvent.setup();
+    post.mockResolvedValue({ _id: 'sale2', status: 'paga' });
+    render(<Pos />);
+
+    await user.type(screen.getByPlaceholderText('SKU, código ou nome'), 'corrente');
+    await user.click(await screen.findByRole('button', { name: 'Adicionar' }));
+    await user.selectOptions(screen.getByLabelText('Serviço do catálogo'), 'svc1');
+    await user.click(screen.getByRole('button', { name: 'Lançar serviço' }));
+    expect(await screen.findByText('Regulagem de câmbio')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Pagamento'), 'dinheiro');
+    await user.click(screen.getByRole('button', { name: 'Finalizar e imprimir' }));
+
+    expect(post).toHaveBeenCalledWith(
+      '/sales',
+      expect.objectContaining({
+        customer: null,
+        items: [
+          { kind: 'produto', product: 'p1', quantity: 1, unitPrice: 15990 },
+          { kind: 'servico', serviceId: 'svc1', name: 'Regulagem de câmbio', price: 4500, quantity: 1 },
+        ],
+        payments: [{ method: 'dinheiro', amount: 20490 }],
       }),
     );
   });
 
   it('restaura o carrinho gravado depois de um F5', async () => {
     writePosDraft({
-      cart: [{ product, quantity: 1, unitPrice: 15990 }],
+      cart: [{ key: 'produto:p1', kind: 'produto', product, quantity: 1, unitPrice: 15990 }],
       customerId: '',
       customerLabel: '',
       discount: 0,
@@ -98,6 +130,7 @@ describe('PDV', () => {
       if (path === '/customers') return [];
       if (path === '/cash/current') return null;
       if (path.startsWith('/products?')) return [product];
+      if (path.startsWith('/services')) return [];
       return [];
     });
     render(<Pos />);
@@ -141,6 +174,7 @@ describe('PDV', () => {
       if (path === '/cash/current') return { _id: 'caixa1', status: 'aberto', expectedCash: 0 };
       if (path.includes('/products/lookup/')) return product;
       if (path.startsWith('/products?')) return [];
+      if (path.startsWith('/services')) return [];
       return [];
     });
     render(<Pos />);
@@ -156,7 +190,7 @@ describe('PDV', () => {
     await user.type(screen.getByPlaceholderText('SKU, código ou nome'), 'corrente');
     await user.click(await screen.findByRole('button', { name: 'Adicionar' }));
 
-    const qty = screen.getByDisplayValue('1');
+    const qty = screen.getByRole('spinbutton', { name: 'Quantidade Corrente SRAM' });
     fireEvent.change(qty, { target: { value: '9' } });
 
     expect(await screen.findByText(/sem estoque livre/i)).toBeInTheDocument();

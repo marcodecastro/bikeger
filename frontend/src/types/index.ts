@@ -96,7 +96,9 @@ export interface CatalogService {
 
 export interface SaleItem {
   _id?: string;
-  product: string;
+  kind?: 'produto' | 'servico';
+  product?: string | null;
+  service?: string | null;
   sku: string;
   name: string;
   quantity: number;

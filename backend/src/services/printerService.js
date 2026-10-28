@@ -39,9 +39,12 @@ export async function buildReceipt({ kind, number, customerName, items, totals, 
   if (settings.storePhone) rows.push(settings.storePhone);
   if (settings.storeCnpj) rows.push(`CNPJ ${settings.storeCnpj}`);
   rows.push(dashed(width));
-  rows.push(kind === 'os' ? `ORDEM DE SERVICO ${number}` : `CUPOM DE VENDA ${number}`);
+  if (kind === 'os') rows.push(`ORDEM DE SERVICO ${number}`);
+  else if (!customerName) rows.push(`CUPOM NAO FISCAL ${number}`);
+  else rows.push(`CUPOM DE VENDA ${number}`);
   rows.push(new Date().toLocaleString('pt-BR'));
   if (customerName) rows.push(`Cliente: ${customerName}`);
+  else if (kind !== 'os') rows.push('Consumidor');
   rows.push(dashed(width));
 
   for (const item of items) {

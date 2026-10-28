@@ -332,27 +332,46 @@ async function resolveCharge(relatedType, relatedId) {
     const sale = await Sale.findById(relatedId).populate('customer');
     if (!sale) throw httpError(404, 'Venda não encontrada');
     assertCents(sale.total, 'total da venda');
-    const products = await Product.find({ _id: { $in: sale.items.map((item) => item.product) } });
+    const productIds = sale.items
+      .filter((item) => (item.kind || 'produto') !== 'servico' && item.product)
+      .map((item) => item.product);
+    const products = await Product.find({ _id: { $in: productIds } });
     const byId = new Map(products.map((product) => [String(product._id), product]));
-    return {
-      amount: sale.total,
-      customer: sale.customer,
-      payments: sale.payments,
-      items: sale.items.map((item) => {
-        const product = byId.get(String(item.product));
+    const items = sale.items.map((item) => {
+      if ((item.kind || 'produto') === 'servico') {
         return {
-          sku: item.sku,
+          sku: item.sku || 'SERV',
           name: item.name,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           total: item.total,
-          unit: product?.unit,
-          ncm: product?.ncm,
-          cfop: product?.cfop,
-          icmsOrigin: product?.icmsOrigin,
-          icmsCst: product?.icmsCst,
+          unit: 'UN',
+          ncm: '87149990',
+          cfop: '5933',
+          icmsOrigin: '0',
+          icmsCst: '102',
         };
-      }),
+      }
+      const product = byId.get(String(item.product));
+      return {
+        sku: item.sku,
+        name: item.name,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        total: item.total,
+        unit: product?.unit,
+        ncm: product?.ncm,
+        cfop: product?.cfop,
+        icmsOrigin: product?.icmsOrigin,
+        icmsCst: product?.icmsCst,
+      };
+    });
+    if (!items.length) throw httpError(400, 'Venda sem item não emite NFC-e');
+    return {
+      amount: sale.total,
+      customer: sale.customer,
+      payments: sale.payments,
+      items,
     };
   }
 

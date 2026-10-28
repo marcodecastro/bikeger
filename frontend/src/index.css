@@ -218,6 +218,11 @@ a {
   position: relative;
 }
 
+.topbar-os {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .search input {
   width: 100%;
   background: var(--bg-2);

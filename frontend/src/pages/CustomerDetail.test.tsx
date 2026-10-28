@@ -99,6 +99,7 @@ describe('Ficha do cliente', () => {
     );
 
     expect(await screen.findByText('Ana')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Abrir OS' })).toHaveAttribute('href', '/oficina?nova=1&cliente=c1');
     expect(screen.getByText('R$ 800,00')).toBeInTheDocument();
     expect(get).toHaveBeenCalledWith('/customers/c1?salesLimit=50&ordersLimit=50');
 

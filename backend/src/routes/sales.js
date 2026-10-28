@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { Sale } from '../models/Sale.js';
 import { asyncHandler, httpError } from '../utils/asyncHandler.js';
-import { cancelSale, createSale, returnSale } from '../services/saleService.js';
+import { cancelSale, createSale, returnSale, saleLaborTotal, salePartsTotal } from '../services/saleService.js';
 import { buildReceipt } from '../services/printerService.js';
 import { operatorName } from '../middleware/auth.js';
 import { listLimit, listSkip } from '../utils/listLimit.js';
@@ -76,12 +76,19 @@ salesRouter.get(
   asyncHandler(async (req, res) => {
     const sale = await Sale.findById(req.params.id).populate('customer');
     if (!sale) throw httpError(404, 'Venda não encontrada');
+    const laborTotal = saleLaborTotal(sale.items);
+    const partsTotal = salePartsTotal(sale.items);
     const receipt = await buildReceipt({
       kind: 'sale',
       number: sale.number,
       customerName: sale.customer?.name,
       items: sale.items,
-      totals: { subtotal: sale.subtotal, discount: sale.discount, total: sale.total },
+      totals: {
+        subtotal: sale.subtotal,
+        discount: sale.discount,
+        total: sale.total,
+        ...(laborTotal || partsTotal ? { laborTotal, partsTotal } : {}),
+      },
       payments: sale.payments.map((payment) => ({
         method: payment.method,
         amount: payment.amount,

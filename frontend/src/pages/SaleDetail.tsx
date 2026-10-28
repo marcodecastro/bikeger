@@ -106,9 +106,10 @@ export function SaleDetail() {
               <tr key={item._id || item.sku + item.name}>
                 <td>
                   {item.quantity}x {item.name}
-                  {item.returnedQuantity ? (
-                    <div className="muted">devolvido {item.returnedQuantity}</div>
-                  ) : null}
+                  <div className="muted">
+                    {(item.kind || 'produto') === 'servico' ? 'serviço' : item.sku}
+                    {item.returnedQuantity ? ` · devolvido ${item.returnedQuantity}` : ''}
+                  </div>
                 </td>
                 <td className="money">{formatBRL(item.total)}</td>
               </tr>
@@ -130,7 +131,9 @@ export function SaleDetail() {
         <article className="card" style={{ marginTop: 16 }}>
           <h3>Devolução</h3>
           <p className="muted">A peça volta ao estoque. Devolução total tenta cancelar a NFC-e na SEFAZ.</p>
-          {sale.items.map((item) => {
+          {sale.items
+            .filter((item) => (item.kind || 'produto') !== 'servico' && item.product)
+            .map((item) => {
             const open = item.quantity - (item.returnedQuantity || 0);
             const key = item._id || item.sku;
             return (

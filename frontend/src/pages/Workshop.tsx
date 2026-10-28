@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { get, post } from '../lib/api';
 import { OS_KANBAN, OS_STATUS } from '../lib/labels';
 import { pageHasMore, pagedPath } from '../lib/listPage';
@@ -18,6 +18,7 @@ interface WorkOrderBoard {
 
 export function Workshop() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [board, setBoard] = useState<WorkOrderBoard | null>(null);
   const [open, setOpen] = useState(false);
   const [customerId, setCustomerId] = useState('');
@@ -68,6 +69,23 @@ export function Workshop() {
       .then((data) => setMechanicNames(data.mechanicNames || ['Oficina']))
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get('nova') !== '1') return;
+    const cliente = searchParams.get('cliente') || '';
+    const bike = searchParams.get('bike') || '';
+    setOpen(true);
+    if (cliente) {
+      setCustomerId(cliente);
+      get<{ customer?: { name?: string } }>(`/customers/${cliente}`)
+        .then((data) => setCustomerLabel(data.customer?.name || ''))
+        .catch(() => undefined);
+    }
+    if (bike) setBikeId(bike);
+    const next = new URLSearchParams(searchParams);
+    next.delete('nova');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     if (!filtered) {
@@ -159,10 +177,10 @@ export function Workshop() {
       <div className="page-head">
         <div>
           <h2>Oficina</h2>
-          <p>Peça entra reservada. Marque a data na agenda e avise quando ficar pronta.</p>
+          <p>Abra a OS pelo botão à direita. Serviço e peça entram no mesmo orçamento.</p>
         </div>
         <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
-          Nova OS
+          Abrir OS
         </button>
       </div>
       {loadError ? (
@@ -192,6 +210,10 @@ export function Workshop() {
           </select>
         </label>
       </div>
+
+      {!filtered && board && !Object.values(counts).some((qty) => qty > 0) ? (
+        <p className="muted">Nenhuma OS no quadro. Clique em Abrir OS para começar.</p>
+      ) : null}
 
       {filtered ? (
         <article className="card">
@@ -322,7 +344,7 @@ export function Workshop() {
               aria-busy={busy}
               onClick={() => void create()}
             >
-              Abrir OS
+              Criar OS
             </button>
           </div>
         </Modal>

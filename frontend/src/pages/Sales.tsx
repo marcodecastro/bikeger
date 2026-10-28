@@ -84,7 +84,7 @@ export function Sales() {
           <p>Cada cupom já baixou estoque. Cancelar devolve as peças ao kardex.</p>
         </div>
         <Link className="btn btn-primary" to="/pdv">
-          Nova venda
+          Novo cupom
         </Link>
       </div>
       {loadError ? (

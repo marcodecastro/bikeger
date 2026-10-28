@@ -4,6 +4,7 @@ import { get, post, put } from '../lib/api';
 import type { Customer, CustomerHistory } from '../types';
 import { useAuth } from '../lib/auth';
 import { OS_STATUS } from '../lib/labels';
+import { openOsPath } from '../lib/os';
 import { formatBRL } from '../lib/money';
 import { Modal } from '../components/Modal';
 import { BikeFields } from '../components/BikeFields';
@@ -161,9 +162,16 @@ export function CustomerDetail() {
             {data.customer.phone} · {data.customer.email}
           </p>
         </div>
-        <button type="button" className="btn" onClick={() => setOpen(true)}>
-          Cadastrar bike
-        </button>
+        <div className="row page-head-actions">
+          {can('workshop') ? (
+            <Link className="btn btn-primary" to={openOsPath({ customerId: data.customer._id })}>
+              Abrir OS
+            </Link>
+          ) : null}
+          <button type="button" className="btn" onClick={() => setOpen(true)}>
+            Cadastrar bike
+          </button>
+        </div>
       </div>
 
       {canEdit ? (
@@ -251,6 +259,9 @@ export function CustomerDetail() {
         </article>
         <article className="card">
           <h3>Ordens de serviço</h3>
+          {data.orders.length === 0 ? (
+            <p className="muted">Nenhuma OS ainda. Use Abrir OS no topo da ficha.</p>
+          ) : null}
           {data.orders.map((order) => (
             <div key={order._id} className="cart-line">
               <div>

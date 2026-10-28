@@ -1,5 +1,6 @@
 import { Sale } from '../models/Sale.js';
 import { Product } from '../models/Product.js';
+import { Service } from '../models/Service.js';
 import { StockMovement } from '../models/StockMovement.js';
 import '../models/Customer.js';
 import { nextNumber } from '../utils/ids.js';
@@ -14,6 +15,22 @@ import { logError } from '../utils/logger.js';
 
 export const SALE_PAYMENT_EXCEEDS_TOTAL_MESSAGE = 'Pagamento maior que o total';
 
+function isServiceLine(raw) {
+  return raw?.kind === 'servico' || Boolean(raw?.serviceId) || (!raw?.product && (raw?.name || raw?.service));
+}
+
+export function saleLaborTotal(items = []) {
+  return items
+    .filter((item) => (item.kind || 'produto') === 'servico')
+    .reduce((sum, item) => addCents(sum, item.total), 0);
+}
+
+export function salePartsTotal(items = []) {
+  return items
+    .filter((item) => (item.kind || 'produto') !== 'servico')
+    .reduce((sum, item) => addCents(sum, item.total), 0);
+}
+
 export function recalcSaleTotals(sale) {
   const subtotal = sale.items.reduce((sum, item) => addCents(sum, item.total), 0);
   sale.subtotal = subtotal;
@@ -24,6 +41,88 @@ export function recalcSaleTotals(sale) {
     .filter((payment) => payment.status === 'aprovado')
     .reduce((sum, payment) => addCents(sum, payment.amount), 0);
   return sale;
+}
+
+async function buildServiceSaleItem(raw, session) {
+  const quantity = raw.quantity;
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    throw httpError(400, 'Quantidade do item deve ser inteira e positiva');
+  }
+
+  let serviceName = raw.name;
+  let unitPrice = raw.unitPrice ?? raw.price;
+  let serviceRef = raw.service || null;
+  let category = raw.category || 'Serviço';
+
+  if (raw.serviceId || raw.service) {
+    const catalog = await Service.findById(raw.serviceId || raw.service).session(session || undefined);
+    if (!catalog) throw httpError(404, 'Serviço não encontrado');
+    if (!catalog.active) throw httpError(400, `${catalog.name} está inativo`);
+    serviceName = serviceName || catalog.name;
+    unitPrice = unitPrice ?? catalog.price;
+    serviceRef = catalog._id;
+    category = catalog.category || category;
+  }
+
+  if (!String(serviceName || '').trim()) throw httpError(400, 'Informe o nome do serviço');
+  assertCents(unitPrice, 'preço do serviço');
+
+  return {
+    kind: 'servico',
+    product: null,
+    service: serviceRef,
+    sku: 'SERV',
+    name: String(serviceName).trim(),
+    category,
+    quantity,
+    unitCost: 0,
+    unitPrice,
+    total: multiplyCents(unitPrice, quantity),
+    stockMovement: null,
+  };
+}
+
+async function buildProductSaleItem(raw, sale, operator, session) {
+  const product = await Product.findById(raw.product).session(session || undefined);
+  if (!product) throw httpError(404, 'Produto não encontrado na venda');
+  if (!product.active) throw httpError(400, `${product.name} está inativo`);
+
+  const quantity = raw.quantity;
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    throw httpError(400, 'Quantidade do item deve ser inteira e positiva');
+  }
+
+  const unitPrice = raw.unitPrice ?? product.salePrice;
+  assertCents(unitPrice, 'preço de venda do item');
+  const total = multiplyCents(unitPrice, quantity);
+
+  const { movement } = await applyStockMovement({
+    productId: product._id,
+    type: 'venda',
+    direction: 'saida',
+    quantity,
+    referenceType: 'sale',
+    referenceId: sale._id,
+    notes: `Venda ${sale.number}`,
+    operator,
+    unitCost: product.costPrice,
+    unitPrice,
+    session,
+  });
+
+  return {
+    kind: 'produto',
+    product: product._id,
+    service: null,
+    sku: product.sku,
+    name: product.name,
+    category: product.category || '',
+    quantity,
+    unitCost: product.costPrice,
+    unitPrice,
+    total,
+    stockMovement: movement._id,
+  };
 }
 
 export async function createSale(payload) {
@@ -70,44 +169,11 @@ async function persistSale(payload, session) {
 
   const finish = async () => {
     for (const raw of payload.items) {
-      const product = await Product.findById(raw.product).session(session || undefined);
-      if (!product) throw httpError(404, 'Produto não encontrado na venda');
-      if (!product.active) throw httpError(400, `${product.name} está inativo`);
-
-      const quantity = raw.quantity;
-      if (!Number.isInteger(quantity) || quantity <= 0) {
-        throw httpError(400, 'Quantidade do item deve ser inteira e positiva');
+      if (isServiceLine(raw)) {
+        sale.items.push(await buildServiceSaleItem(raw, session));
+        continue;
       }
-
-      const unitPrice = raw.unitPrice ?? product.salePrice;
-      assertCents(unitPrice, 'preço de venda do item');
-      const total = multiplyCents(unitPrice, quantity);
-
-      const { movement } = await applyStockMovement({
-        productId: product._id,
-        type: 'venda',
-        direction: 'saida',
-        quantity,
-        referenceType: 'sale',
-        referenceId: sale._id,
-        notes: `Venda ${sale.number}`,
-        operator: payload.operator,
-        unitCost: product.costPrice,
-        unitPrice,
-        session,
-      });
-
-      sale.items.push({
-        product: product._id,
-        sku: product.sku,
-        name: product.name,
-        category: product.category || '',
-        quantity,
-        unitCost: product.costPrice,
-        unitPrice,
-        total,
-        stockMovement: movement._id,
-      });
+      sale.items.push(await buildProductSaleItem(raw, sale, payload.operator, session));
     }
 
     for (const payment of payload.payments) {
@@ -206,6 +272,7 @@ export async function cancelSale(saleId, { operator = 'sistema', notes = '', sil
     }
 
     for (const item of current.items) {
+      if ((item.kind || 'produto') === 'servico' || !item.product) continue;
       const remaining = item.quantity - (item.returnedQuantity || 0);
       if (remaining <= 0) continue;
       await applyStockMovement({
@@ -258,8 +325,13 @@ export async function returnSale(saleId, { items = [], reason = '', method, oper
     let refund = 0;
 
     for (const raw of items) {
-      const line = current.items.id(raw.itemId) || current.items.find((item) => String(item.product) === String(raw.product));
+      const line =
+        current.items.id(raw.itemId) ||
+        current.items.find((item) => item.product && String(item.product) === String(raw.product));
       if (!line) throw httpError(404, 'Item da venda não encontrado');
+      if ((line.kind || 'produto') === 'servico' || !line.product) {
+        throw httpError(400, 'Serviço do cupom não devolve estoque. Cancele a venda se precisar estornar.');
+      }
       const quantity = raw.quantity;
       if (!Number.isInteger(quantity) || quantity <= 0) {
         throw httpError(400, 'Quantidade devolvida deve ser inteira e positiva');

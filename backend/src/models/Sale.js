@@ -2,7 +2,16 @@ import mongoose from 'mongoose';
 
 const saleItemSchema = new mongoose.Schema(
   {
-    product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
+    kind: { type: String, enum: ['produto', 'servico'], default: 'produto' },
+    product: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Product',
+      default: null,
+      required() {
+        return this.kind !== 'servico';
+      },
+    },
+    service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service', default: null },
     sku: { type: String, required: true },
     name: { type: String, required: true },
     category: { type: String, default: '' },

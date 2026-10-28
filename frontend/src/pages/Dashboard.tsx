@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { get, post } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { OS_STATUS } from '../lib/labels';
+import { openOsPath } from '../lib/os';
 import { formatBRL } from '../lib/money';
 import type { DashboardData, NeededPart } from '../types';
 
@@ -72,15 +73,18 @@ export function Dashboard() {
           <h2>Painel da loja</h2>
           <p>Vendas, oficina e estoque no mesmo lugar. Valores sempre em centavos.</p>
         </div>
-        {can('pos') ? (
-          <Link className="btn btn-primary" to="/pdv">
-            Abrir PDV
-          </Link>
-        ) : (
-          <Link className="btn btn-primary" to="/oficina">
-            Ir para oficina
-          </Link>
-        )}
+        <div className="row page-head-actions">
+          {can('workshop') ? (
+            <Link className="btn btn-primary" to={openOsPath()}>
+              Abrir OS
+            </Link>
+          ) : null}
+          {can('pos') ? (
+            <Link className="btn" to="/pdv">
+              Abrir PDV
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid grid-4">

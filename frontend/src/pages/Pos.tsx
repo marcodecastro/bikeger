@@ -5,15 +5,27 @@ import { addCartLine, cartTotals, setCartLineQuantity } from '../lib/cart';
 import { formatBRL, multiplyCents } from '../lib/money';
 import { isOpenPixStatus, PIX_POLL_MS } from '../lib/paymentPoll';
 import {
+  catalogServiceLine,
   clearPosDraft,
   emptyPosDraft,
   posDraftIsEmpty,
+  productCartKey,
   readPosDraft,
+  salePayloadItems,
+  serviceCartKey,
   writePosDraft,
   type PosCartItem,
 } from '../lib/posDraft';
 import { useBusy } from '../lib/useBusy';
-import type { CashRegister, Customer, MpPixPayment, Product, Receipt, Sale } from '../types';
+import type {
+  CashRegister,
+  CatalogService,
+  Customer,
+  MpPixPayment,
+  Product,
+  Receipt,
+  Sale,
+} from '../types';
 import { MoneyInput } from '../components/MoneyInput';
 import { ReceiptModal } from '../components/ReceiptModal';
 import { EntitySearch } from '../components/EntitySearch';
@@ -21,6 +33,7 @@ import { EntitySearch } from '../components/EntitySearch';
 export function Pos() {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<Product[]>([]);
+  const [services, setServices] = useState<CatalogService[]>([]);
   const [draft] = useState(() => readPosDraft() || emptyPosDraft());
   const [cart, setCart] = useState<PosCartItem[]>(draft.cart);
   const [customerId, setCustomerId] = useState(draft.customerId);
@@ -28,6 +41,10 @@ export function Pos() {
   const [discount, setDiscount] = useState(draft.discount);
   const [method, setMethod] = useState(draft.method);
   const [cashReceived, setCashReceived] = useState(draft.cashReceived);
+  const [serviceId, setServiceId] = useState('');
+  const [serviceName, setServiceName] = useState('');
+  const [servicePrice, setServicePrice] = useState(0);
+  const [serviceQty, setServiceQty] = useState(1);
   const [error, setError] = useState('');
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [cashOpen, setCashOpen] = useState<boolean | null>(null);
@@ -44,6 +61,7 @@ export function Pos() {
     get<CashRegister | null>('/cash/current')
       .then((register) => setCashOpen(Boolean(register?._id)))
       .catch(() => setCashOpen(null));
+    get<CatalogService[]>('/services?active=true').then(setServices).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -116,9 +134,11 @@ export function Pos() {
 
   function addProduct(product: Product) {
     const available = product.availableStock ?? product.currentStock;
+    const key = productCartKey(product._id);
     setCart((current) => {
+      const productLines = current.filter((item) => item.kind === 'produto');
       const result = addCartLine(
-        current.map((item) => ({
+        productLines.map((item) => ({
           productId: item.product._id,
           name: item.product.name,
           quantity: item.quantity,
@@ -138,15 +158,70 @@ export function Pos() {
       }
       setError('');
       const qty = result.lines.find((line) => line.productId === product._id)?.quantity ?? 1;
-      const found = current.find((item) => item.product._id === product._id);
-      if (!found) return [...current, { product, quantity: 1, unitPrice: product.salePrice }];
-      return current.map((item) =>
-        item.product._id === product._id ? { ...item, quantity: qty } : item,
-      );
+      const found = current.find((item) => item.key === key);
+      if (!found) {
+        return [
+          ...current,
+          { key, kind: 'produto' as const, product, quantity: 1, unitPrice: product.salePrice },
+        ];
+      }
+      return current.map((item) => (item.key === key ? { ...item, quantity: qty } : item));
     });
     setQuery('');
     setHits([]);
     window.setTimeout(() => searchRef.current?.focus(), 0);
+  }
+
+  function addServiceLine() {
+    const name = serviceName.trim();
+    if (!serviceId && !name) {
+      setError('Informe o serviço');
+      return;
+    }
+    if (!serviceId && servicePrice <= 0) {
+      setError('Informe o preço do serviço');
+      return;
+    }
+    if (!Number.isInteger(serviceQty) || serviceQty < 1) {
+      setError('Quantidade do serviço deve ser um inteiro positivo');
+      return;
+    }
+
+    if (serviceId) {
+      const catalog = services.find((service) => service._id === serviceId);
+      if (!catalog) {
+        setError('Serviço não encontrado no catálogo');
+        return;
+      }
+      const line = catalogServiceLine(catalog, serviceQty);
+      setCart((current) => {
+        const found = current.find((item) => item.key === line.key);
+        if (!found) return [...current, line];
+        return current.map((item) =>
+          item.key === line.key
+            ? { ...item, quantity: item.quantity + serviceQty, unitPrice: catalog.price }
+            : item,
+        );
+      });
+    } else {
+      const unitPrice = servicePrice;
+      const key = serviceCartKey({ name, unitPrice });
+      setCart((current) => {
+        const found = current.find((item) => item.key === key);
+        if (!found) {
+          return [...current, { key, kind: 'servico', name, quantity: serviceQty, unitPrice }];
+        }
+        return current.map((item) =>
+          item.key === key ? { ...item, quantity: item.quantity + serviceQty } : item,
+        );
+      });
+    }
+
+    setError('');
+    setServiceId('');
+    setServiceName('');
+    setServicePrice(0);
+    setServiceQty(1);
   }
 
   async function lookupExact(event: FormEvent) {
@@ -175,11 +250,7 @@ export function Pos() {
         setError('');
         const sale = await post<Sale>('/sales', {
           customer: customerId || null,
-          items: cart.map((item) => ({
-            product: item.product._id,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-          })),
+          items: salePayloadItems(cart),
           discount,
           payments: [{ method, amount: total }],
           cashReceived: method === 'dinheiro' ? cashReceived : 0,
@@ -221,8 +292,8 @@ export function Pos() {
     <section className="page">
       <div className="page-head">
         <div>
-          <h2>PDV</h2>
-          <p>Leia o código de barras ou busque a peça. O estoque sai na hora da venda.</p>
+          <h2>Cupom de balcão</h2>
+          <p>Peça e serviço no mesmo cupom. Cliente é opcional — sem cadastro sai como consumidor.</p>
         </div>
       </div>
 
@@ -273,17 +344,75 @@ export function Pos() {
             </div>
           ) : null}
 
+          <h4 style={{ marginTop: 20 }}>Serviço</h4>
+          <div className="row">
+            <label className="field">
+              Serviço do catálogo
+              <select
+                value={serviceId}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setServiceId(next);
+                  const catalog = services.find((service) => service._id === next);
+                  if (catalog) {
+                    setServiceName(catalog.name);
+                    setServicePrice(catalog.price);
+                  }
+                }}
+              >
+                <option value="">Avulso ou catálogo</option>
+                {services.map((service) => (
+                  <option key={service._id} value={service._id}>
+                    {service.name} · {formatBRL(service.price)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Descrição
+              <input
+                value={serviceName}
+                onChange={(event) => {
+                  setServiceName(event.target.value);
+                  if (serviceId) setServiceId('');
+                }}
+                placeholder="Ex.: Regulagem de câmbio"
+              />
+            </label>
+            <MoneyInput label="Preço" valueCents={servicePrice} onChangeCents={setServicePrice} />
+            <label className="field">
+              Qtd
+              <input
+                className="qty-input"
+                type="number"
+                min={1}
+                value={serviceQty}
+                onChange={(event) => setServiceQty(Number(event.target.value) || 1)}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy || (!serviceId && !serviceName.trim())}
+              onClick={addServiceLine}
+            >
+              Lançar serviço
+            </button>
+          </div>
+
           <div style={{ marginTop: 20 }}>
             {cart.length === 0 ? <p className="empty">Carrinho vazio.</p> : null}
             {cart.map((item) => (
-              <div className="cart-line" key={item.product._id}>
+              <div className="cart-line" key={item.key}>
                 <div className="pos-hit">
-                  {item.product.images?.[0] ? (
+                  {item.kind === 'produto' && item.product.images?.[0] ? (
                     <img className="pos-thumb" src={item.product.images[0]} alt="" />
                   ) : null}
                   <div>
-                    <strong>{item.product.name}</strong>
-                    <div className="muted">{item.product.sku}</div>
+                    <strong>{item.kind === 'produto' ? item.product.name : item.name}</strong>
+                    <div className="muted">
+                      {item.kind === 'produto' ? item.product.sku : 'Serviço'}
+                    </div>
                   </div>
                 </div>
                 <input
@@ -291,11 +420,24 @@ export function Pos() {
                   type="number"
                   min={1}
                   value={item.quantity}
+                  aria-label={`Quantidade ${item.kind === 'produto' ? item.product.name : item.name}`}
                   onChange={(event) => {
                     const quantity = Number(event.target.value);
+                    if (item.kind === 'servico') {
+                      if (!Number.isInteger(quantity) || quantity < 1) {
+                        setError('Quantidade do serviço deve ser um inteiro positivo');
+                        return;
+                      }
+                      setError('');
+                      setCart((current) =>
+                        current.map((line) => (line.key === item.key ? { ...line, quantity } : line)),
+                      );
+                      return;
+                    }
                     setCart((current) => {
+                      const productLines = current.filter((line) => line.kind === 'produto');
                       const result = setCartLineQuantity(
-                        current.map((line) => ({
+                        productLines.map((line) => ({
                           productId: line.product._id,
                           name: line.product.name,
                           quantity: line.quantity,
@@ -314,7 +456,7 @@ export function Pos() {
                         result.lines.find((line) => line.productId === item.product._id)?.quantity ??
                         item.quantity;
                       return current.map((line) =>
-                        line.product._id === item.product._id ? { ...line, quantity: nextQty } : line,
+                        line.key === item.key ? { ...line, quantity: nextQty } : line,
                       );
                     });
                   }}
@@ -323,9 +465,7 @@ export function Pos() {
                 <button
                   type="button"
                   className="btn btn-ghost"
-                  onClick={() =>
-                    setCart((current) => current.filter((line) => line.product._id !== item.product._id))
-                  }
+                  onClick={() => setCart((current) => current.filter((line) => line.key !== item.key))}
                 >
                   ×
                 </button>
@@ -336,9 +476,9 @@ export function Pos() {
 
         <article className="card">
           <EntitySearch
-            label="Cliente"
+            label="Cliente (opcional)"
             placeholder="Nome, telefone ou documento"
-            emptyLabel="Balcão / avulso"
+            emptyLabel="Consumidor / sem cadastro"
             value={customerId}
             selectedLabel={customerLabel}
             fetchItems={searchCustomers}

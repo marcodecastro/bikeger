@@ -50,8 +50,8 @@ describe('Oficina', () => {
       </MemoryRouter>,
     );
 
-    await user.click(await screen.findByRole('button', { name: 'Nova OS' }));
-    const open = await screen.findByRole('button', { name: 'Abrir OS' });
+    await user.click(await screen.findByRole('button', { name: 'Abrir OS' }));
+    const open = await screen.findByRole('button', { name: 'Criar OS' });
     fireEvent.click(open);
     fireEvent.click(open);
 
@@ -117,5 +117,16 @@ describe('Oficina', () => {
     fireEvent.change(await screen.findByLabelText('Status'), { target: { value: 'entregue' } });
     expect(await screen.findByText('OS-00001')).toBeInTheDocument();
     expect(get.mock.calls.some((call) => String(call[0]).includes('status=entregue'))).toBe(true);
+  });
+
+  it('abre o formulário pela URL nova=1', async () => {
+    render(
+      <MemoryRouter initialEntries={['/oficina?nova=1']}>
+        <Workshop />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Abrir ordem de serviço' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Criar OS' })).toBeInTheDocument();
   });
 });

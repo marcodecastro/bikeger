@@ -50,6 +50,10 @@ describe('Ficha da bike', () => {
     );
 
     expect(await screen.findByDisplayValue('SN-1')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Abrir OS' })).toHaveAttribute(
+      'href',
+      '/oficina?nova=1&cliente=c1&bike=bike-1',
+    );
     await user.clear(screen.getByDisplayValue('SN-1'));
     await user.type(screen.getByPlaceholderText('Número de série'), 'SN-99');
     await user.click(screen.getByRole('button', { name: 'Salvar ficha' }));

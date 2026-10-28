@@ -50,6 +50,8 @@ describe('Painel', () => {
     );
 
     expect(await screen.findByText('Painel da loja')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Abrir OS' })).toHaveAttribute('href', '/oficina?nova=1');
+    expect(screen.queryByRole('link', { name: 'Abrir PDV' })).not.toBeInTheDocument();
     expect(screen.queryByText('Margem estimada')).not.toBeInTheDocument();
     expect(screen.queryByText('Custo')).not.toBeInTheDocument();
     expect(screen.queryByText('Margem por categoria — este mês')).not.toBeInTheDocument();

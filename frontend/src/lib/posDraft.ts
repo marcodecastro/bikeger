@@ -1,12 +1,23 @@
-import type { MpPixPayment, Product } from '../types';
+import type { CatalogService, MpPixPayment, Product } from '../types';
 
 export const POS_DRAFT_KEY = 'bikeger.pos.draft';
 
-export interface PosCartItem {
-  product: Product;
-  quantity: number;
-  unitPrice: number;
-}
+export type PosCartItem =
+  | {
+      key: string;
+      kind: 'produto';
+      product: Product;
+      quantity: number;
+      unitPrice: number;
+    }
+  | {
+      key: string;
+      kind: 'servico';
+      serviceId?: string;
+      name: string;
+      quantity: number;
+      unitPrice: number;
+    };
 
 export interface PosDraft {
   cart: PosCartItem[];
@@ -38,8 +49,30 @@ function isProduct(value: unknown): value is Product {
 
 function isCartItem(value: unknown): value is PosCartItem {
   if (!value || typeof value !== 'object') return false;
-  const item = value as PosCartItem;
-  return isProduct(item.product) && Number.isInteger(item.quantity) && item.quantity > 0 && Number.isInteger(item.unitPrice);
+  const item = value as Partial<PosCartItem> & { product?: Product };
+  if (!Number.isInteger(item.quantity) || (item.quantity ?? 0) <= 0 || !Number.isInteger(item.unitPrice)) {
+    return false;
+  }
+  if (item.kind === 'servico') {
+    return Boolean(item.key && item.name && typeof item.name === 'string');
+  }
+  // legado: só produto sem kind
+  if (!item.kind || item.kind === 'produto') {
+    if (!isProduct(item.product)) return false;
+    return true;
+  }
+  return false;
+}
+
+function normalizeCartItem(item: PosCartItem): PosCartItem {
+  if (item.kind === 'servico') return item;
+  return {
+    key: item.key || `produto:${item.product._id}`,
+    kind: 'produto',
+    product: item.product,
+    quantity: item.quantity,
+    unitPrice: item.unitPrice,
+  };
 }
 
 function integerOrZero(value: unknown): number {
@@ -50,6 +83,15 @@ export function emptyPosDraft(): PosDraft {
   return { ...empty, cart: [] };
 }
 
+export function productCartKey(productId: string) {
+  return `produto:${productId}`;
+}
+
+export function serviceCartKey(opts: { serviceId?: string; name: string; unitPrice: number }) {
+  if (opts.serviceId) return `servico:${opts.serviceId}`;
+  return `servico:avulso:${opts.name.trim().toLowerCase()}:${opts.unitPrice}`;
+}
+
 export function readPosDraft(): PosDraft | null {
   try {
     const raw = localStorage.getItem(POS_DRAFT_KEY);
@@ -57,7 +99,7 @@ export function readPosDraft(): PosDraft | null {
     const parsed = JSON.parse(raw) as Partial<PosDraft>;
     if (!Array.isArray(parsed.cart) || !parsed.cart.every(isCartItem)) return null;
     return {
-      cart: parsed.cart,
+      cart: parsed.cart.map((item) => normalizeCartItem(item as PosCartItem)),
       customerId: typeof parsed.customerId === 'string' ? parsed.customerId : '',
       customerLabel: typeof parsed.customerLabel === 'string' ? parsed.customerLabel : '',
       discount: integerOrZero(parsed.discount),
@@ -88,4 +130,35 @@ export function posDraftIsEmpty(draft: PosDraft) {
     !draft.pendingSaleId &&
     !draft.pix
   );
+}
+
+export function salePayloadItems(cart: PosCartItem[]) {
+  return cart.map((item) => {
+    if (item.kind === 'servico') {
+      return {
+        kind: 'servico' as const,
+        serviceId: item.serviceId || undefined,
+        name: item.name,
+        price: item.unitPrice,
+        quantity: item.quantity,
+      };
+    }
+    return {
+      kind: 'produto' as const,
+      product: item.product._id,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+    };
+  });
+}
+
+export function catalogServiceLine(service: CatalogService, quantity = 1): PosCartItem {
+  return {
+    key: serviceCartKey({ serviceId: service._id, name: service.name, unitPrice: service.price }),
+    kind: 'servico',
+    serviceId: service._id,
+    name: service.name,
+    quantity,
+    unitPrice: service.price,
+  };
 }

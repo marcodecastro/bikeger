@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { clearPosDraft, POS_DRAFT_KEY, readPosDraft, writePosDraft } from './posDraft';
+import {
+  clearPosDraft,
+  POS_DRAFT_KEY,
+  productCartKey,
+  readPosDraft,
+  salePayloadItems,
+  writePosDraft,
+} from './posDraft';
 import type { Product } from '../types';
 
 const product: Product = {
@@ -28,7 +35,16 @@ describe('rascunho do PDV', () => {
 
   it('grava e lê o carrinho', () => {
     writePosDraft({
-      cart: [{ product, quantity: 2, unitPrice: 15990 }],
+      cart: [
+        { key: productCartKey(product._id), kind: 'produto', product, quantity: 2, unitPrice: 15990 },
+        {
+          key: 'servico:avulso:regulagem:4500',
+          kind: 'servico',
+          name: 'Regulagem',
+          quantity: 1,
+          unitPrice: 4500,
+        },
+      ],
       customerId: 'c1',
       customerLabel: 'Ana',
       discount: 100,
@@ -38,9 +54,15 @@ describe('rascunho do PDV', () => {
       pix: null,
     });
     const draft = readPosDraft();
-    expect(draft?.cart[0]?.product.name).toBe('Corrente SRAM');
+    expect(draft?.cart[0]?.kind).toBe('produto');
+    if (draft?.cart[0]?.kind === 'produto') expect(draft.cart[0].product.name).toBe('Corrente SRAM');
     expect(draft?.cart[0]?.quantity).toBe(2);
+    expect(draft?.cart[1]?.kind).toBe('servico');
     expect(draft?.customerLabel).toBe('Ana');
+    expect(salePayloadItems(draft!.cart)).toEqual([
+      { kind: 'produto', product: 'p1', quantity: 2, unitPrice: 15990 },
+      { kind: 'servico', serviceId: undefined, name: 'Regulagem', price: 4500, quantity: 1 },
+    ]);
   });
 
   it('ignora JSON inválido e limpa a chave', () => {

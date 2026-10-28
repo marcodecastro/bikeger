@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { openOsPath } from '../lib/os';
 import { get } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { ROLE_LABELS } from '../lib/permissions';
@@ -10,7 +11,7 @@ import { StoreBrand } from './StoreBrand';
 
 const links = [
   { to: '/', label: 'Painel', cap: 'dashboard' },
-  { to: '/pdv', label: 'PDV', tag: 'balcão', cap: 'pos' },
+  { to: '/pdv', label: 'Cupom', tag: 'PDV', cap: 'pos' },
   { to: '/oficina', label: 'Oficina', cap: 'workshop' },
   { to: '/agenda', label: 'Agenda', cap: 'agenda' },
   { to: '/vendas', label: 'Vendas', cap: 'sales' },
@@ -182,6 +183,11 @@ export function Layout() {
               </div>
             ) : null}
           </div>
+          )}
+          {locked || !can('workshop') ? null : (
+            <Link className="btn btn-primary topbar-os" to={openOsPath()}>
+              Abrir OS
+            </Link>
           )}
         </header>
         <Outlet />

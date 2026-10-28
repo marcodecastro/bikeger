@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { get, put } from '../lib/api';
 import { OS_STATUS } from '../lib/labels';
+import { openOsPath } from '../lib/os';
 import { formatBRL } from '../lib/money';
 import type { BikeHistory } from '../types';
 import { BikeFields } from '../components/BikeFields';
@@ -92,6 +93,14 @@ export function BikeDetail() {
           </p>
         </div>
         <div className="row page-head-actions">
+          {owner ? (
+            <Link
+              className="btn btn-primary"
+              to={openOsPath({ customerId: owner._id, bikeId: data.bike._id })}
+            >
+              Abrir OS
+            </Link>
+          ) : null}
           <Link className="btn" to="/bikes">
             Voltar à lista
           </Link>
