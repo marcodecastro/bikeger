@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Login } from './Login';
 
@@ -74,5 +74,32 @@ describe('Login', () => {
 
     expect(await screen.findByRole('button', { name: /Dono/i })).toBeInTheDocument();
     expect(screen.getByText(/Ambiente de desenvolvimento/)).toBeInTheDocument();
+  });
+
+  it('manda para Minha senha quando o login exige troca', async () => {
+    const user = userEvent.setup();
+    login.mockResolvedValue({
+      id: 'u1',
+      name: 'Rita',
+      login: 'balcao',
+      role: 'balcao',
+      active: true,
+      mustChangePassword: true,
+    });
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/conta" element={<p>Minha senha obrigatória</p>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await user.type(screen.getByLabelText('Login'), 'balcao');
+    await user.type(screen.getByLabelText('Senha'), 'bikeger');
+    await user.click(screen.getByRole('button', { name: 'Entrar' }));
+
+    expect(login).toHaveBeenCalledWith('balcao', 'bikeger');
+    expect(await screen.findByText('Minha senha obrigatória')).toBeInTheDocument();
   });
 });

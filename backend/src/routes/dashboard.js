@@ -11,7 +11,7 @@ import { listNotices } from '../services/notifyService.js';
 import { hideCostIfNeeded } from '../utils/hideCost.js';
 import { can } from '../utils/roles.js';
 import { todaySalesKpi } from '../utils/todaySalesKpi.js';
-import { listStaleWaitingParts, workshopStatusCounts } from '../services/workOrderService.js';
+import { listNeededParts, listStaleWaitingParts, workshopStatusCounts } from '../services/workOrderService.js';
 import { countOpenPaymentApplyFailures } from '../services/paymentOutbox.js';
 import { getSettings } from '../models/Settings.js';
 
@@ -56,6 +56,7 @@ dashboardRouter.get(
       ]);
 
     const waitingParts = await listStaleWaitingParts(settings.waitingPartsDays || 3);
+    const neededParts = await listNeededParts();
 
     res.json(
       hideCostIfNeeded(
@@ -79,6 +80,7 @@ dashboardRouter.get(
           pendingApplyCount,
           waitingParts,
           waitingPartsDays: settings.waitingPartsDays || 3,
+          neededParts,
         },
         req.user,
       ),

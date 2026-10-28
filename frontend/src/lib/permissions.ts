@@ -47,5 +47,6 @@ export interface AuthUser {
   login: string;
   role: Role;
   active: boolean;
+  mustChangePassword?: boolean;
   capabilities?: string[];
 }

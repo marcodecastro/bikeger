@@ -106,6 +106,58 @@ describe('Painel', () => {
     expect(screen.getByText(/Há 3 dia\(s\) ou mais/)).toBeInTheDocument();
   });
 
+  it('monta o pedido das OS paradas com peça, quantidade e fornecedor', async () => {
+    can.mockReturnValue(true);
+    get.mockResolvedValue({
+      ...data,
+      waitingPartsDays: 3,
+      waitingParts: [
+        {
+          _id: 'os-wait',
+          number: 'OS-00015',
+          status: 'aguardando_pecas',
+          customer: { _id: 'c1', name: 'Maria', phone: '', email: '', document: '', active: true },
+          bike: {
+            _id: 'b1',
+            customer: 'c1',
+            brand: 'Caloi',
+            model: 'Elite',
+            color: '',
+            serialNumber: '',
+            frameSize: '',
+            type: 'mtb',
+            notes: '',
+          },
+        },
+      ],
+      neededParts: [
+        {
+          productId: 'p1',
+          sku: 'COR-01',
+          name: 'Corrente SRAM',
+          quantity: 2,
+          currentStock: 0,
+          supplierId: 's1',
+          supplierName: 'Shimano Dist',
+          orders: ['OS-00015'],
+        },
+      ],
+    });
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Pedido para montar')).toBeInTheDocument();
+    expect(screen.getByText('2× Corrente SRAM')).toBeInTheDocument();
+    expect(screen.getByText(/COR-01 · Shimano Dist · OS-00015/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Montar compra' })).toHaveAttribute(
+      'href',
+      '/compras?fromOs=1&supplier=s1',
+    );
+  });
+
   it('mostra botão para reaplicar PIX pendente', async () => {
     can.mockReturnValue(true);
     get.mockResolvedValue({ ...data, pendingApplyCount: 2 });

@@ -36,6 +36,9 @@ export function ReceiptModal({ receipt, onClose, title = 'Cupom térmico' }: Rec
         <div className="print-area label-sheet">
           {receipt.labels.map((label) => (
             <div className="label-40x30" key={label.productId}>
+              {label.image ? (
+                <img className="label-40x30-photo" src={label.image} alt={label.name} />
+              ) : null}
               {receipt.store?.name ? <strong>{receipt.store.name}</strong> : null}
               <div>{label.name}</div>
               <div className="muted">{label.sku}</div>
@@ -62,7 +65,7 @@ export function ReceiptModal({ receipt, onClose, title = 'Cupom térmico' }: Rec
       </div>
       <p className="muted">
         {shelf
-          ? 'A plaquinha usa 40×30 mm. O arquivo ESC/POS vai para a térmica de etiqueta.'
+          ? 'A plaquinha usa 40×30 mm com a foto da ficha, se houver. O arquivo ESC/POS vai para a térmica de etiqueta.'
           : 'O botão de imprimir usa o layout de 80mm. O arquivo ESC/POS serve para impressoras térmicas conectadas via utilitário local ou spooler.'}
       </p>
     </Modal>

@@ -9,6 +9,7 @@ const userSchema = new mongoose.Schema(
     role: { type: String, required: true, enum: ROLES },
     active: { type: Boolean, default: true, index: true },
     lastLoginAt: { type: Date, default: null },
+    mustChangePassword: { type: Boolean, default: false },
   },
   { timestamps: true },
 );

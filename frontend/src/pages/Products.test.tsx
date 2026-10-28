@@ -135,4 +135,42 @@ describe('Produtos', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('Falha ao listar produtos');
   });
+
+  it('filtra abaixo do mínimo e peças inativas', async () => {
+    get.mockResolvedValue([
+      {
+        _id: 'p1',
+        sku: 'CAB-01',
+        name: 'Cabo velho',
+        brand: 'Jagwire',
+        category: 'Transmissão',
+        currentStock: 0,
+        minStock: 2,
+        unit: 'UN',
+        salePrice: 1990,
+        costPrice: 800,
+        active: false,
+      },
+    ]);
+
+    render(
+      <MemoryRouter>
+        <Products />
+      </MemoryRouter>,
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    fireEvent.change(screen.getByLabelText('Estoque'), { target: { value: 'low' } });
+    fireEvent.change(screen.getByLabelText('Situação'), { target: { value: 'false' } });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(get).toHaveBeenCalledWith('/products?lowStock=true&active=false&limit=50&skip=0');
+    expect(screen.getByText(/inativa/)).toBeInTheDocument();
+  });
 });

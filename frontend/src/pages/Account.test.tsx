@@ -9,14 +9,20 @@ vi.mock('../lib/api', () => ({
   post: (...args: unknown[]) => post(...args),
 }));
 
+const setUser = vi.fn();
+
 vi.mock('../lib/auth', () => ({
-  useAuth: () => ({ user: { name: 'Rita', login: 'balcao', role: 'balcao' } }),
+  useAuth: () => ({
+    user: { name: 'Rita', login: 'balcao', role: 'balcao', mustChangePassword: true },
+    setUser,
+  }),
 }));
 
 describe('Minha senha', () => {
   beforeEach(() => {
     post.mockReset();
-    post.mockResolvedValue({ login: 'balcao' });
+    setUser.mockReset();
+    post.mockResolvedValue({ login: 'balcao', mustChangePassword: false });
   });
 
   it('recusa confirmação diferente e grava a senha nova', async () => {
@@ -36,6 +42,12 @@ describe('Minha senha', () => {
       currentPassword: 'bikeger',
       newPassword: 'senhanova1',
     });
+    expect(setUser).toHaveBeenCalledWith({ login: 'balcao', mustChangePassword: false });
     expect(await screen.findByRole('status')).toHaveTextContent(/Senha alterada/);
+  });
+
+  it('avisa que o primeiro acesso exige troca de senha', async () => {
+    render(<Account />);
+    expect(screen.getByText(/Troque a senha neste primeiro acesso/)).toBeInTheDocument();
   });
 });

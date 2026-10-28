@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -58,5 +58,64 @@ describe('Oficina', () => {
     expect(post.mock.calls.filter((call) => call[0] === '/work-orders')).toHaveLength(1);
     expect(open).toBeDisabled();
     resolveCreate?.({ _id: 'os1' });
+  });
+
+  it('busca OS entregue por número', async () => {
+    get.mockImplementation(async (path: string) => {
+      if (path === '/work-orders/board') return { counts: {}, columns: {} };
+      if (path === '/work-orders/mechanics') return { mechanicNames: ['Oficina'] };
+      if (String(path).startsWith('/work-orders?')) {
+        return [
+          {
+            _id: 'os42',
+            number: 'OS-00042',
+            status: 'entregue',
+            total: 19900,
+            customer: { name: 'Clara Mendes' },
+            bike: { brand: 'Caloi', model: 'Elite' },
+          },
+        ];
+      }
+      return [];
+    });
+
+    render(
+      <MemoryRouter>
+        <Workshop />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(await screen.findByLabelText('Buscar OS'), { target: { value: 'OS-00042' } });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 180));
+    });
+
+    expect(get.mock.calls.some((call) => String(call[0]).includes('/work-orders?') && String(call[0]).includes('q=OS-00042'))).toBe(
+      true,
+    );
+    expect(await screen.findByText('OS-00042')).toBeInTheDocument();
+    expect(screen.getByText('Clara Mendes')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /OS-00042/ })).toHaveAttribute('href', '/oficina/os42');
+  });
+
+  it('lista só as entregues no filtro de status', async () => {
+    get.mockImplementation(async (path: string) => {
+      if (path === '/work-orders/board') return { counts: {}, columns: {} };
+      if (path === '/work-orders/mechanics') return { mechanicNames: ['Oficina'] };
+      if (String(path).includes('status=entregue')) {
+        return [{ _id: 'os1', number: 'OS-00001', status: 'entregue', total: 0, customer: { name: 'Ana' }, bike: { brand: 'Sense', model: 'Fun' } }];
+      }
+      return [];
+    });
+
+    render(
+      <MemoryRouter>
+        <Workshop />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(await screen.findByLabelText('Status'), { target: { value: 'entregue' } });
+    expect(await screen.findByText('OS-00001')).toBeInTheDocument();
+    expect(get.mock.calls.some((call) => String(call[0]).includes('status=entregue'))).toBe(true);
   });
 });

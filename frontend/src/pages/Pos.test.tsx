@@ -134,6 +134,21 @@ describe('PDV', () => {
     expect(await screen.findByText('CUPOM')).toBeInTheDocument();
   });
 
+  it('Enter no código adiciona a peça sem clicar em Adicionar', async () => {
+    const user = userEvent.setup();
+    get.mockImplementation(async (path: string) => {
+      if (path === '/customers' || path.startsWith('/customers?')) return [];
+      if (path === '/cash/current') return { _id: 'caixa1', status: 'aberto', expectedCash: 0 };
+      if (path.includes('/products/lookup/')) return product;
+      if (path.startsWith('/products?')) return [];
+      return [];
+    });
+    render(<Pos />);
+    await user.type(screen.getByPlaceholderText('SKU, código ou nome'), '789{Enter}');
+    expect(await screen.findByText('Corrente SRAM')).toBeInTheDocument();
+    expect(get).toHaveBeenCalledWith('/products/lookup/789');
+  });
+
   it('não deixa o qty passar do estoque livre', async () => {
     const user = userEvent.setup();
     render(<Pos />);

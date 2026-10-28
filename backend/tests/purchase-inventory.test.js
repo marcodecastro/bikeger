@@ -5,7 +5,7 @@ import { Product } from '../src/models/Product.js';
 import { Supplier } from '../src/models/Supplier.js';
 import { StockMovement } from '../src/models/StockMovement.js';
 import { InventoryCount } from '../src/models/InventoryCount.js';
-import { receivePurchase } from '../src/services/purchaseService.js';
+import { listPurchases, receivePurchase } from '../src/services/purchaseService.js';
 import {
   applyInventoryCount,
   scanInventoryItem,
@@ -74,6 +74,30 @@ test('compra em lote atualiza kardex e custo médio', async () => {
   assert.equal(moves[0].unitCost, 2000);
 });
 
+test('lista compra por NF, fornecedor e período', async () => {
+  const product = await makeProduct(1, 1000);
+  const supplier = await Supplier.create({ name: `SRAM ${product.sku}` });
+  const purchase = await receivePurchase({
+    supplierId: supplier._id,
+    invoiceNumber: 'NF-4411',
+    notes: 'lote sram',
+    operator: 'teste',
+    items: [{ productId: product._id, quantity: 1, unitCost: 1000 }],
+  });
+
+  const byNf = await listPurchases({ q: 'NF-4411' });
+  assert.ok(byNf.some((item) => String(item._id) === String(purchase._id)));
+
+  const bySupplier = await listPurchases({ supplier: String(supplier._id) });
+  assert.ok(bySupplier.some((item) => String(item._id) === String(purchase._id)));
+
+  const start = new Date(Date.now() - 60_000).toISOString();
+  const end = new Date(Date.now() + 60_000).toISOString();
+  const byDate = await listPurchases({ from: start, to: end, q: 'NF-4411' });
+  assert.equal(byDate.length, 1);
+  assert.equal(byDate[0].invoiceNumber, 'NF-4411');
+});
+
 test('contagem física aplica diferença no kardex', async () => {
   await InventoryCount.updateMany({ status: 'aberta' }, { $set: { status: 'cancelada' } });
   const product = await makeProduct(5, 1000);
@@ -99,9 +123,11 @@ test('relatório do mês e etiqueta 40x30 usam centavos', async () => {
   assert.equal(typeof report.stock.giro, 'number');
 
   const product = await makeProduct(1, 500);
+  product.images = ['https://cdn.example/peca.webp'];
   const labels = await buildShelfLabels([product]);
   assert.equal(labels.width, 40);
   assert.equal(labels.height, 30);
   assert.match(labels.labels[0].text, /R\$ /);
+  assert.equal(labels.labels[0].image, 'https://cdn.example/peca.webp');
   assert.ok(labels.escposBase64.length > 10);
 });

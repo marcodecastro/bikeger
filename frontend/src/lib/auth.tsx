@@ -11,6 +11,7 @@ interface AuthContextValue {
   ready: boolean;
   login: (loginName: string, password: string) => Promise<AuthUser>;
   logout: () => void;
+  setUser: (next: AuthUser | null) => void;
   can: (capability: string) => boolean;
 }
 
@@ -71,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken(null);
         setUser(null);
       },
+      setUser,
       can(capability) {
         return can(user?.role, capability, user?.capabilities);
       },
@@ -92,6 +94,9 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const location = useLocation();
   if (!ready) return <section className="page">Entrando...</section>;
   if (!user) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
+  if (user.mustChangePassword && location.pathname !== '/conta') {
+    return <Navigate to="/conta" replace />;
+  }
   return children;
 }
 

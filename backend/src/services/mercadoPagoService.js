@@ -288,7 +288,10 @@ export async function applyApprovedPayment(payment, remote) {
   });
 
   if (nfceSaleId) enqueueJob('nfce.enqueue', { relatedType: 'sale', relatedId: nfceSaleId });
-  if (paidNoticeOrderId) enqueueJob('os.paid-notice', { orderId: paidNoticeOrderId });
+  if (paidNoticeOrderId) {
+    enqueueJob('os.paid-notice', { orderId: paidNoticeOrderId });
+    enqueueJob('nfce.enqueue', { relatedType: 'workOrder', relatedId: paidNoticeOrderId });
+  }
 }
 
 async function hasMpLedger(relatedId, amount, type, session) {

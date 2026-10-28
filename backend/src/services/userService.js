@@ -34,13 +34,21 @@ export async function ensureDefaultUsers() {
   }
   for (const account of DEFAULT_USERS) {
     const exists = await User.findOne({ login: account.login });
-    if (exists) continue;
+    if (exists) {
+      const stillDemo = await verifyPassword(account.password, exists.passwordHash);
+      if (stillDemo && !exists.mustChangePassword) {
+        exists.mustChangePassword = true;
+        await exists.save();
+      }
+      continue;
+    }
     try {
       await User.create({
         name: account.name,
         login: account.login,
         role: account.role,
         passwordHash: await hashPassword(account.password, { allowDemo: true }),
+        mustChangePassword: true,
       });
       console.log(`Usuário padrão criado: ${account.login} / ${account.password} (${account.role})`);
     } catch (error) {
@@ -71,6 +79,7 @@ export async function createUser({ name, login, password, role }) {
     login: normalized,
     role,
     passwordHash: await hashPassword(password),
+    mustChangePassword: true,
   });
 }
 
@@ -96,6 +105,7 @@ export async function updateUser(id, patch, { actor } = {}) {
   }
   if (patch.password) {
     user.passwordHash = await hashPassword(patch.password);
+    user.mustChangePassword = true;
     await recordAudit({
       action: 'user.password_changed',
       actor,
@@ -114,6 +124,7 @@ export async function changeOwnPassword(userId, { currentPassword, newPassword }
   const ok = await verifyPassword(String(currentPassword), user.passwordHash);
   if (!ok) throw httpError(400, 'Senha atual não confere');
   user.passwordHash = await hashPassword(newPassword);
+  user.mustChangePassword = false;
   await user.save();
   await recordAudit({
     action: 'user.password_changed',

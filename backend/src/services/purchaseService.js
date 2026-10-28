@@ -6,12 +6,25 @@ import { addCents, assertCents, multiplyCents, weightedAverageCost } from '../ut
 import { httpError } from '../utils/asyncHandler.js';
 import { applyStockMovement } from './stockService.js';
 import { runInTransaction } from '../utils/transaction.js';
-import { listLimit } from '../utils/listLimit.js';
+import { listLimit, listSkip } from '../utils/listLimit.js';
+import { searchRegex } from '../utils/searchRegex.js';
 
-export async function listPurchases({ limit } = {}) {
-  return Purchase.find()
+export async function listPurchases({ limit, skip, supplier, q, from, to } = {}) {
+  const filter = {};
+  if (supplier) filter.supplier = supplier;
+  const rx = searchRegex(q);
+  if (rx) {
+    filter.$or = [{ invoiceNumber: rx }, { number: rx }, { notes: rx }];
+  }
+  if (from || to) {
+    filter.receivedAt = {};
+    if (from) filter.receivedAt.$gte = new Date(from);
+    if (to) filter.receivedAt.$lte = new Date(to);
+  }
+  return Purchase.find(filter)
     .populate('supplier', 'name tradeName')
-    .sort({ createdAt: -1 })
+    .sort({ receivedAt: -1, createdAt: -1 })
+    .skip(listSkip(skip))
     .limit(listLimit(limit));
 }
 
@@ -21,7 +34,13 @@ export async function getPurchase(id) {
   return purchase;
 }
 
-export async function receivePurchase({ supplierId, notes = '', items = [], operator = 'estoque' }) {
+export async function receivePurchase({
+  supplierId,
+  notes = '',
+  invoiceNumber = '',
+  items = [],
+  operator = 'estoque',
+}) {
   if (!Array.isArray(items) || items.length === 0) {
     throw httpError(400, 'Informe pelo menos uma peça na compra');
   }
@@ -36,6 +55,7 @@ export async function receivePurchase({ supplierId, notes = '', items = [], oper
           number: await nextNumber('purchase', 'CP', 5, session),
           supplier: supplier._id,
           notes,
+          invoiceNumber: String(invoiceNumber || '').trim(),
           items: [],
           itemsTotal: 0,
           operator,

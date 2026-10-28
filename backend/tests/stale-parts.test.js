@@ -9,7 +9,7 @@ import { createWorkOrder, updateWorkOrder } from '../src/services/workOrderServi
 import { flagStaleWaitingParts } from '../src/services/stalePartsService.js';
 import { flushJobs } from '../src/utils/jobs.js';
 
-const uri = process.env.MONGODB_TEST_URI || 'mongodb://127.0.0.1:27017/bikeger_test';
+const uri = process.env.MONGODB_TEST_URI_STALE || 'mongodb://127.0.0.1:27017/bikeger_test_stale';
 
 before(async () => {
   await mongoose.connect(uri);

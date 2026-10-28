@@ -36,6 +36,7 @@ export function Pos() {
   const { busy, run } = useBusy();
   const pixRef = useRef(pix);
   pixRef.current = pix;
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const searchCustomers = useCallback((q: string) => get<Customer[]>(`/customers?q=${encodeURIComponent(q)}`), []);
 
@@ -145,16 +146,26 @@ export function Pos() {
     });
     setQuery('');
     setHits([]);
+    window.setTimeout(() => searchRef.current?.focus(), 0);
   }
 
   async function lookupExact(event: FormEvent) {
     event.preventDefault();
-    if (!query.trim()) return;
+    const code = query.trim();
+    if (!code) return;
     try {
-      const product = await get<Product>(`/products/lookup/${encodeURIComponent(query.trim())}`);
+      const product = await get<Product>(`/products/lookup/${encodeURIComponent(code)}`);
       addProduct(product);
+      return;
     } catch {
-      if (hits[0]) addProduct(hits[0]);
+      /* pistola errou o código exato; tenta o primeiro resultado da busca */
+    }
+    try {
+      const list = hits.length ? hits : await get<Product[]>(`/products?q=${encodeURIComponent(code)}&active=true`);
+      if (list[0]) addProduct(list[0]);
+      else setError('Peça não encontrada');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Peça não encontrada');
     }
   }
 
@@ -221,10 +232,12 @@ export function Pos() {
             <label className="field">
               Busca / código de barras
               <input
+                ref={searchRef}
                 autoFocus
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="SKU, código ou nome"
+                enterKeyHint="search"
               />
             </label>
           </form>

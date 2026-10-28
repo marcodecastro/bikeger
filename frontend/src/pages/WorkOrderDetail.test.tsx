@@ -407,3 +407,37 @@ describe('OS entregue', () => {
   });
 });
 
+describe('NFC-e da OS', () => {
+  beforeEach(() => {
+    get.mockReset();
+    post.mockReset();
+    can.mockReturnValue(true);
+    get.mockImplementation(async (path: string) => {
+      if (path === '/work-orders/os1') return { ...order, total: 8000, paidAmount: 8000 };
+      if (path === '/fiscal/workOrder/os1') return [];
+      if (path.startsWith('/products')) return [];
+      if (path.startsWith('/services')) return [];
+      return [];
+    });
+  });
+
+  it('gera o rascunho da NFC-e da OS', async () => {
+    post.mockResolvedValue({ _id: 'nf-os', status: 'pendente', amount: 8000, relatedType: 'workOrder' });
+    render(
+      <MemoryRouter initialEntries={['/oficina/os1']}>
+        <Routes>
+          <Route path="/oficina/:id" element={<WorkOrderDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const nfce = await screen.findByRole('button', { name: 'Gerar NFC-e' });
+    fireEvent.click(nfce);
+    fireEvent.click(nfce);
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledWith('/fiscal/workOrder/os1');
+    expect(await screen.findByText('pendente')).toBeInTheDocument();
+  });
+});
+

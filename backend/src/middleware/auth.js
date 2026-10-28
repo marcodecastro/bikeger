@@ -16,6 +16,8 @@ export function verifyAccessToken(token) {
   return jwt.verify(token, tokenSecret(), { algorithms: ['HS256'] });
 }
 
+export const MUST_CHANGE_PASSWORD_MESSAGE = 'Troque a senha no primeiro acesso antes de continuar';
+
 export function publicUser(user) {
   return {
     id: String(user._id),
@@ -24,6 +26,7 @@ export function publicUser(user) {
     role: user.role,
     active: user.active,
     lastLoginAt: user.lastLoginAt,
+    mustChangePassword: Boolean(user.mustChangePassword),
     capabilities: capabilitiesFor(user.role),
   };
 }
@@ -47,6 +50,14 @@ export async function requireAuth(req, _res, next) {
     }
     next(httpError(401, 'Sessão expirada. Entre de novo.'));
   }
+}
+
+export function requirePasswordChanged(req, _res, next) {
+  if (req.user?.mustChangePassword) {
+    next(httpError(403, MUST_CHANGE_PASSWORD_MESSAGE));
+    return;
+  }
+  next();
 }
 
 export function requireCapability(...capabilities) {

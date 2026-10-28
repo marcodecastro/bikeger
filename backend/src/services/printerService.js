@@ -185,6 +185,7 @@ export async function buildShelfLabels(products) {
     const name = String(product.name || '').trim();
     const sku = String(product.sku || '').trim();
     const barcode = String(product.barcode || sku).trim();
+    const image = Array.isArray(product.images) ? String(product.images[0] || '').trim() : '';
     const rows = [
       settings.storeName,
       ...wrap(name, 24).slice(0, 2),
@@ -210,6 +211,7 @@ export async function buildShelfLabels(products) {
       name,
       barcode,
       price: product.salePrice || 0,
+      image,
       text,
       escposBase64: Buffer.from(escpos, 'binary').toString('base64'),
     };

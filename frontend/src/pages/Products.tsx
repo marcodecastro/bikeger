@@ -15,6 +15,8 @@ export function Products() {
   const [products, setProducts] = useState<Product[]>([]);
   const [q, setQ] = useState('');
   const [category, setCategory] = useState('');
+  const [stock, setStock] = useState('');
+  const [active, setActive] = useState('');
   const [label, setLabel] = useState<ShelfLabel | null>(null);
   const [loadError, setLoadError] = useState('');
   const [hasMore, setHasMore] = useState(false);
@@ -24,6 +26,8 @@ export function Products() {
     const params: Record<string, string> = {};
     if (q) params.q = q;
     if (category) params.category = category;
+    if (stock === 'low') params.lowStock = 'true';
+    if (active) params.active = active;
     return params;
   }
 
@@ -41,7 +45,7 @@ export function Products() {
         });
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [q, category]);
+  }, [q, category, stock, active]);
 
   async function loadMore() {
     if (loadingMore || !hasMore) return;
@@ -77,7 +81,7 @@ export function Products() {
         </p>
       ) : null}
 
-      <div className="row" style={{ marginBottom: 16 }}>
+      <div className="row filters">
         <label className="field field-grow">
           Buscar
           <input value={q} onChange={(event) => setQ(event.target.value)} />
@@ -89,6 +93,21 @@ export function Products() {
             {CATEGORIES.map((item) => (
               <option key={item}>{item}</option>
             ))}
+          </select>
+        </label>
+        <label className="field">
+          Estoque
+          <select value={stock} onChange={(event) => setStock(event.target.value)}>
+            <option value="">Todos</option>
+            <option value="low">Abaixo do mínimo</option>
+          </select>
+        </label>
+        <label className="field">
+          Situação
+          <select value={active} onChange={(event) => setActive(event.target.value)}>
+            <option value="">Todas</option>
+            <option value="true">Ativas</option>
+            <option value="false">Inativas</option>
           </select>
         </label>
       </div>
@@ -116,6 +135,7 @@ export function Products() {
                     <Link to={`/produtos/${product._id}`}>{product.name}</Link>
                     <div className="muted">
                       {product.brand} · {product.category}
+                      {product.active === false ? ' · inativa' : ''}
                     </div>
                   </td>
                   <td>

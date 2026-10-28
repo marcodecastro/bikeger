@@ -71,7 +71,36 @@ describe('Caixa', () => {
     render(<Cash />);
 
     await user.click(await screen.findByRole('button', { name: 'Lançar' }));
+    expect(post).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole('button', { name: 'Confirmar sangria' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/sangria/i);
+  });
+
+  it('pede confirmação antes de fechar o caixa', async () => {
+    const user = userEvent.setup();
+    get.mockImplementation(async (path: string) => {
+      if (path === '/cash/current') {
+        return {
+          _id: 'caixa1',
+          status: 'aberto',
+          expectedCash: 10000,
+          openingAmount: 10000,
+          summary: { byMethod: {}, receivedTotal: 0 },
+        };
+      }
+      if (path === '/cash') return [];
+      if (String(path).startsWith('/cash/movements')) return [];
+      return null;
+    });
+    render(<Cash />);
+
+    await user.click(await screen.findByRole('button', { name: 'Fechar caixa' }));
+    expect(await screen.findByRole('heading', { name: 'Fechar caixa' })).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Fechar' }));
+    expect(screen.queryByRole('heading', { name: 'Fechar caixa' })).not.toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
   });
 });

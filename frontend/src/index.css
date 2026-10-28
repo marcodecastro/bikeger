@@ -1051,14 +1051,27 @@ th {
 .label-40x30 {
   width: 40mm;
   height: 30mm;
-  padding: 3mm;
+  padding: 2mm 3mm;
   background: #fff;
   color: #111;
   font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.25;
+  font-size: 10px;
+  line-height: 1.2;
   overflow: hidden;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5mm;
+}
+
+.label-40x30-photo {
+  height: 9mm;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: left center;
+  display: block;
+  flex-shrink: 0;
 }
 
 .label-40x30 strong,

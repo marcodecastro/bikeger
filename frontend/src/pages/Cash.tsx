@@ -5,6 +5,7 @@ import { formatBRL } from '../lib/money';
 import { useBusy } from '../lib/useBusy';
 import type { CashMovement, CashRegister, DayReport, Receipt } from '../types';
 import { MoneyInput } from '../components/MoneyInput';
+import { Modal } from '../components/Modal';
 import { ReceiptModal } from '../components/ReceiptModal';
 
 export function Cash() {
@@ -18,6 +19,7 @@ export function Cash() {
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [pending, setPending] = useState<null | 'close' | 'sangria' | 'suprimento'>(null);
   const { busy, run } = useBusy();
 
   async function load() {
@@ -56,6 +58,7 @@ export function Cash() {
           amount: movementAmount,
           notes,
         });
+        setPending(null);
         await load();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Falha ao lançar movimento');
@@ -69,6 +72,7 @@ export function Cash() {
         setError('');
         const closed = await post<CashRegister>('/cash/close', { countedCash: counted });
         if (closed.dayReport) setReceipt(closed.dayReport);
+        setPending(null);
         await load();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Falha ao fechar o caixa');
@@ -79,6 +83,15 @@ export function Cash() {
   async function printDayReport(id: string) {
     const report = await get<DayReport & { receipt: Receipt }>(`/cash/${id}/day-report`);
     setReceipt(report.receipt);
+  }
+
+  async function confirmPending() {
+    if (!pending) return;
+    if (pending === 'close') {
+      await closeCash();
+      return;
+    }
+    await launchMovement();
   }
 
   return (
@@ -142,7 +155,7 @@ export function Cash() {
               className="btn"
               disabled={busy}
               aria-busy={busy}
-              onClick={() => void launchMovement()}
+              onClick={() => setPending(movementType === 'suprimento' ? 'suprimento' : 'sangria')}
             >
               Lançar
             </button>
@@ -153,7 +166,7 @@ export function Cash() {
               className="btn btn-primary"
               disabled={busy}
               aria-busy={busy}
-              onClick={() => void closeCash()}
+              onClick={() => setPending('close')}
             >
               Fechar caixa
             </button>
@@ -161,7 +174,7 @@ export function Cash() {
         </div>
       )}
 
-      {error ? (
+      {error && !pending ? (
         <p className="error" role="alert" style={{ marginTop: 12 }}>
           {error}
         </p>
@@ -230,6 +243,42 @@ export function Cash() {
         </table>
       </article>
       {receipt ? <ReceiptModal title="Relatório do dia" receipt={receipt} onClose={() => setReceipt(null)} /> : null}
+      {pending ? (
+        <Modal
+          title={
+            pending === 'close' ? 'Fechar caixa' : pending === 'sangria' ? 'Lançar sangria' : 'Lançar suprimento'
+          }
+          onClose={() => setPending(null)}
+        >
+          <p>
+            {pending === 'close'
+              ? `O caixa fecha com ${formatBRL(counted)} contados no gaveteiro. A diferença entra no relatório do dia.`
+              : pending === 'sangria'
+                ? `Sai ${formatBRL(movementAmount)} do gaveteiro${notes ? ` (${notes})` : ''}. Confira o valor antes de lançar.`
+                : `Entra ${formatBRL(movementAmount)} no gaveteiro${notes ? ` (${notes})` : ''}. Confira o valor antes de lançar.`}
+          </p>
+          {error ? (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <div className="row" style={{ marginTop: 16 }}>
+            <button
+              type="button"
+              className={pending === 'close' ? 'btn btn-primary' : 'btn'}
+              disabled={busy}
+              aria-busy={busy}
+              onClick={() => void confirmPending()}
+            >
+              {pending === 'close'
+                ? 'Confirmar fechamento'
+                : pending === 'sangria'
+                  ? 'Confirmar sangria'
+                  : 'Confirmar suprimento'}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
     </section>
   );
 }

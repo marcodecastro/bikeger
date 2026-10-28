@@ -6,8 +6,9 @@ import { OS_STATUS, PAYMENT_METHODS, COUNTER_PAYMENT_METHODS, allowedOsStatuses,
 import { formatBRL, subtractCents } from '../lib/money';
 import { isOpenPixStatus, PIX_POLL_MS } from '../lib/paymentPoll';
 import { useBusy } from '../lib/useBusy';
-import type { CatalogService, MpPixPayment, Product, Receipt, WorkOrder } from '../types';
+import type { CatalogService, FiscalDocument, MpPixPayment, Product, Receipt, WorkOrder } from '../types';
 import { MoneyInput } from '../components/MoneyInput';
+import { Modal } from '../components/Modal';
 import { ReceiptModal } from '../components/ReceiptModal';
 import { WorkOrderSheet } from '../components/WorkOrderSheet';
 import { EntitySearch } from '../components/EntitySearch';
@@ -28,6 +29,8 @@ export function WorkOrderDetail() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [storeName, setStoreName] = useState('BikeGer');
   const [storeLogo, setStoreLogo] = useState('');
+  const [fiscal, setFiscal] = useState<FiscalDocument[]>([]);
+  const [pendingNfce, setPendingNfce] = useState<string | null>(null);
   const [error, setError] = useState('');
   const { busy, run } = useBusy();
   const pixRef = useRef(pix);
@@ -46,6 +49,7 @@ export function WorkOrderDetail() {
   async function load() {
     if (!id) return;
     setOrder(await get<WorkOrder>(`/work-orders/${id}`));
+    setFiscal(await get<FiscalDocument[]>(`/fiscal/workOrder/${id}`).catch(() => []));
   }
 
   useEffect(() => {
@@ -274,6 +278,25 @@ export function WorkOrderDetail() {
             onClick={async () => setReceipt(await get<Receipt>(`/work-orders/${id}/receipt`))}
           >
             Cupom térmico (não é NFC-e)
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={busy || order.total <= 0}
+            aria-busy={busy}
+            onClick={() =>
+              void run(async () => {
+                try {
+                  setError('');
+                  const doc = await post<FiscalDocument>(`/fiscal/workOrder/${id}`);
+                  setFiscal((current) => [doc, ...current.filter((item) => item._id !== doc._id)]);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Falha ao gerar NFC-e');
+                }
+              })
+            }
+          >
+            Gerar NFC-e
           </button>
         </div>
       </div>
@@ -606,6 +629,60 @@ export function WorkOrderDetail() {
         </article>
       )}
 
+      <article className="card" style={{ marginTop: 16 }}>
+        <h3>Documento fiscal</h3>
+        <p className="muted">Peça e mão de obra na mesma NFC-e. O cupom da térmica não substitui a nota.</p>
+        {fiscal.length ? (
+          fiscal.map((doc) => (
+            <div className="stack-item stack-item-static" key={doc._id}>
+              <div>
+                <strong>{doc.status}</strong>
+                <div className="muted">
+                  {doc.errorMessage || doc.accessKey || doc.sefazStatus || doc.provider}
+                </div>
+              </div>
+              <div className="row">
+                <span className="money">{formatBRL(doc.amount)}</span>
+                {doc.status === 'autorizada' ? (
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    disabled={busy}
+                    aria-busy={busy}
+                    onClick={() => setPendingNfce(doc._id)}
+                  >
+                    Cancelar NFC-e
+                  </button>
+                ) : null}
+                {doc.status === 'pendente' || doc.status === 'rejeitada' ? (
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={busy}
+                    aria-busy={busy}
+                    onClick={() =>
+                      void run(async () => {
+                        try {
+                          setError('');
+                          const updated = await post<FiscalDocument>(`/fiscal/${doc._id}/emit`);
+                          setFiscal((current) => current.map((item) => (item._id === updated._id ? updated : item)));
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Falha ao emitir NFC-e');
+                        }
+                      })
+                    }
+                  >
+                    Emitir na SEFAZ
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="muted">Nenhum rascunho de NFC-e ainda. Sem token, CSC e emitente a SEFAZ recusa.</p>
+        )}
+      </article>
+
       {error ? (
         <p className="error" role="alert" aria-live="polite">
           {error}
@@ -622,6 +699,36 @@ export function WorkOrderDetail() {
           storeLogo={storeLogo}
           onClose={() => setSheetOpen(false)}
         />
+      ) : null}
+      {pendingNfce ? (
+        <Modal title="Cancelar NFC-e" onClose={() => setPendingNfce(null)}>
+          <p>A nota autorizada será cancelada na SEFAZ. Só siga se a oficina realmente precisa anular o documento fiscal desta OS.</p>
+          {error ? <p className="error">{error}</p> : null}
+          <div className="row" style={{ marginTop: 16 }}>
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={busy}
+              aria-busy={busy}
+              onClick={() =>
+                void run(async () => {
+                  try {
+                    setError('');
+                    const updated = await post<FiscalDocument>(`/fiscal/${pendingNfce}/cancel`, {
+                      justificativa: 'Cancelamento solicitado no painel BikeGer',
+                    });
+                    setFiscal((current) => current.map((item) => (item._id === updated._id ? updated : item)));
+                    setPendingNfce(null);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Falha ao cancelar a NFC-e');
+                  }
+                })
+              }
+            >
+              Confirmar cancelamento na SEFAZ
+            </button>
+          </div>
+        </Modal>
       ) : null}
     </section>
   );

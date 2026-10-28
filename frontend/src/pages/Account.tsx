@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import { post } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import type { AuthUser } from '../lib/permissions';
 
 export function Account() {
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -22,11 +23,16 @@ export function Account() {
     try {
       setError('');
       setSaved('');
-      await post('/auth/change-password', { currentPassword, newPassword });
+      const next = await post<AuthUser>('/auth/change-password', { currentPassword, newPassword });
+      setUser(next);
       setCurrentPassword('');
       setNewPassword('');
       setConfirm('');
-      setSaved('Senha alterada. Use a nova da próxima vez que entrar.');
+      setSaved(
+        next.mustChangePassword
+          ? 'Senha alterada. Use a nova da próxima vez que entrar.'
+          : 'Senha alterada. Pode seguir o turno com a senha nova.',
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao trocar a senha');
     } finally {
@@ -42,6 +48,9 @@ export function Account() {
           <p>
             {user?.name} ({user?.login}). A senha demo não deve ficar no dia a dia da loja.
           </p>
+          {user?.mustChangePassword ? (
+            <p className="error">Troque a senha neste primeiro acesso antes de abrir o painel.</p>
+          ) : null}
         </div>
       </div>
       <article className="card" style={{ maxWidth: 420 }}>

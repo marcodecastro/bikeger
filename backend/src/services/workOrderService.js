@@ -2,6 +2,7 @@ import { WorkOrder } from '../models/WorkOrder.js';
 import { Product } from '../models/Product.js';
 import { Service } from '../models/Service.js';
 import { Bike } from '../models/Bike.js';
+import { Customer } from '../models/Customer.js';
 import { nextNumber } from '../utils/ids.js';
 import { addCents, assertCents, multiplyCents, subtractCents } from '../utils/money.js';
 import { httpError } from '../utils/asyncHandler.js';
@@ -10,7 +11,8 @@ import { registerLedgerMovement, requireOpenRegister, reverseLedgerForReference 
 import { runInTransaction } from '../utils/transaction.js';
 import { enqueueJob } from '../utils/jobs.js';
 import { recordAudit } from './auditService.js';
-import { listLimit } from '../utils/listLimit.js';
+import { listLimit, listSkip } from '../utils/listLimit.js';
+import { searchRegex } from '../utils/searchRegex.js';
 import {
   assertWorkOrderOpen,
   assertWorkOrderTransition,
@@ -454,7 +456,10 @@ export async function addPaymentToWorkOrder(orderId, payment) {
       becamePaid = beforePaid < order.total && order.paidAmount >= order.total && order.total > 0;
     }
   });
-  if (becamePaid) enqueueJob('os.paid-notice', { orderId: String(orderId) });
+  if (becamePaid) {
+    enqueueJob('os.paid-notice', { orderId: String(orderId) });
+    enqueueJob('nfce.enqueue', { relatedType: 'workOrder', relatedId: String(orderId) });
+  }
   return populateOrder(orderId);
 }
 
@@ -524,6 +529,39 @@ export async function cancelWorkOrder(orderId, operator = 'oficina', actor = {})
   return cancelled;
 }
 
+export async function listWorkOrders({ status, customer, bike, q, skip, limit } = {}) {
+  const filter = {};
+  if (status) filter.status = status;
+  if (customer) filter.customer = customer;
+  if (bike) filter.bike = bike;
+  const rx = searchRegex(q);
+  if (rx) {
+    const [customers, bikes] = await Promise.all([
+      Customer.find({ $or: [{ name: rx }, { phone: rx }, { document: rx }] })
+        .select('_id')
+        .limit(80)
+        .lean(),
+      Bike.find({ $or: [{ brand: rx }, { model: rx }, { serialNumber: rx }] })
+        .select('_id')
+        .limit(80)
+        .lean(),
+    ]);
+    filter.$or = [
+      { number: rx },
+      { mechanic: rx },
+      { customer: { $in: customers.map((item) => item._id) } },
+      { bike: { $in: bikes.map((item) => item._id) } },
+    ];
+  }
+
+  return WorkOrder.find(filter)
+    .populate('customer')
+    .populate('bike')
+    .sort({ createdAt: -1 })
+    .skip(listSkip(skip))
+    .limit(listLimit(limit));
+}
+
 export async function listWorkOrderBoard({ limit = 40 } = {}) {
   const cap = listLimit(limit, 40);
   const [countRows, ...lists] = await Promise.all([
@@ -581,6 +619,60 @@ export async function listStaleWaitingParts(days = 3) {
     .populate('bike')
     .sort({ partsWaitingSince: 1, updatedAt: 1 })
     .limit(80);
+}
+
+export async function listNeededParts({ supplierId } = {}) {
+  const orders = await WorkOrder.find({ status: 'aguardando_pecas' })
+    .select('number parts')
+    .limit(200)
+    .lean();
+
+  const qty = new Map();
+  for (const order of orders) {
+    for (const part of order.parts || []) {
+      if ((part.stockStatus || 'reservada') === 'consumida') continue;
+      const productId = String(part.product);
+      const current = qty.get(productId) || {
+        productId,
+        sku: part.sku,
+        name: part.name,
+        quantity: 0,
+        orders: [],
+      };
+      current.quantity += Number(part.quantity) || 0;
+      if (!current.orders.includes(order.number)) current.orders.push(order.number);
+      qty.set(productId, current);
+    }
+  }
+
+  const ids = [...qty.keys()];
+  if (!ids.length) return [];
+
+  const filter = { _id: { $in: ids } };
+  if (supplierId) filter.supplier = supplierId;
+
+  const products = await Product.find(filter).populate('supplier', 'name').lean();
+  return products
+    .map((product) => {
+      const line = qty.get(String(product._id));
+      const supplier = product.supplier;
+      return {
+        productId: String(product._id),
+        sku: product.sku,
+        name: product.name,
+        quantity: line.quantity,
+        unitCost: product.costPrice || 0,
+        currentStock: product.currentStock || 0,
+        supplierId: supplier?._id ? String(supplier._id) : '',
+        supplierName: supplier?.name || '',
+        orders: line.orders,
+      };
+    })
+    .sort((a, b) => {
+      const bySupplier = (a.supplierName || 'zzz').localeCompare(b.supplierName || 'zzz', 'pt-BR');
+      if (bySupplier) return bySupplier;
+      return a.name.localeCompare(b.name, 'pt-BR');
+    });
 }
 
 export function populateOrder(id) {

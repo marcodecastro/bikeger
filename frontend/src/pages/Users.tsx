@@ -188,7 +188,7 @@ export function Users() {
             <p className="muted">
               {editing
                 ? 'Deixe em branco para manter a senha atual. Mínimo 8 caracteres se for trocar.'
-                : 'Mínimo 8 caracteres. A senha de demo da loja continua valendo só no seed local.'}
+                : 'Mínimo 8 caracteres. Na primeira entrada a pessoa troca essa senha.'}
             </p>
             <label className="field">
               Perfil

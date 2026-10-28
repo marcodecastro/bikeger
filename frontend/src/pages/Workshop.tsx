@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { get, post } from '../lib/api';
 import { OS_KANBAN, OS_STATUS } from '../lib/labels';
+import { pageHasMore, pagedPath } from '../lib/listPage';
 import { formatBRL } from '../lib/money';
 import { useBusy } from '../lib/useBusy';
 import type { Bike, Customer, WorkOrder } from '../types';
+import { LoadMore } from '../components/LoadMore';
 import { Modal } from '../components/Modal';
 import { EntitySearch } from '../components/EntitySearch';
 import { BikeFields } from '../components/BikeFields';
@@ -31,7 +33,20 @@ export function Workshop() {
   const [type, setType] = useState('mtb');
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [q, setQ] = useState('');
+  const [status, setStatus] = useState('');
+  const [hits, setHits] = useState<WorkOrder[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const { busy, run } = useBusy();
+  const filtered = Boolean(q.trim() || status);
+
+  function extra() {
+    const params: Record<string, string> = {};
+    if (q.trim()) params.q = q.trim();
+    if (status) params.status = status;
+    return params;
+  }
 
   const searchCustomers = useCallback(
     (q: string) => get<Customer[]>(`/customers?q=${encodeURIComponent(q)}`),
@@ -53,6 +68,27 @@ export function Workshop() {
       .then((data) => setMechanicNames(data.mechanicNames || ['Oficina']))
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!filtered) {
+      setHits([]);
+      setHasMore(false);
+      return;
+    }
+    const delay = q.trim() ? 160 : 0;
+    const timer = window.setTimeout(() => {
+      get<WorkOrder[]>(pagedPath('/work-orders', 0, extra()))
+        .then((list) => {
+          setLoadError('');
+          setHits(list);
+          setHasMore(pageHasMore(list));
+        })
+        .catch((err: unknown) => {
+          setLoadError(err instanceof Error ? err.message : 'Falha ao buscar as OS');
+        });
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [q, status, filtered]);
 
   useEffect(() => {
     if (!customerId) {
@@ -99,6 +135,21 @@ export function Workshop() {
     });
   }
 
+  async function loadMore() {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      setLoadError('');
+      const list = await get<WorkOrder[]>(pagedPath('/work-orders', hits.length, extra()));
+      setHits((current) => [...current, ...list]);
+      setHasMore(pageHasMore(list));
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Falha ao buscar as OS');
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
   const columns = OS_KANBAN;
   const counts = board?.counts || {};
   const lists = board?.columns || {};
@@ -120,25 +171,74 @@ export function Workshop() {
         </p>
       ) : null}
 
-      <div className="kanban">
-        {columns.map((status) => (
-          <div className="kanban-col" key={status}>
-            <h3>
-              {OS_STATUS[status]} · {counts[status] || 0}
-            </h3>
-            {(lists[status] || []).map((order) => (
-              <Link className="os-card" key={order._id} to={`/oficina/${order._id}`}>
-                <strong>{order.number}</strong>
-                <span className="os-card-line">{order.customer?.name}</span>
-                <span className="os-card-line">
-                  {order.bike?.brand} {order.bike?.model}
-                </span>
-                <span className="os-card-price money">{formatBRL(order.total)}</span>
-              </Link>
+      <div className="row filters">
+        <label className="field field-grow">
+          Buscar OS
+          <input
+            value={q}
+            onChange={(event) => setQ(event.target.value)}
+            placeholder="OS-00042, cliente, bike ou mecânico"
+          />
+        </label>
+        <label className="field">
+          Status
+          <select value={status} onChange={(event) => setStatus(event.target.value)}>
+            <option value="">Quadro</option>
+            {Object.entries(OS_STATUS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
             ))}
-          </div>
-        ))}
+          </select>
+        </label>
       </div>
+
+      {filtered ? (
+        <article className="card">
+          {hits.length === 0 && !loadError ? (
+            <p className="empty">Nenhuma OS encontrada.</p>
+          ) : (
+            <div className="stack-list">
+              {hits.map((order) => (
+                <Link className="stack-item" key={order._id} to={`/oficina/${order._id}`}>
+                  <div className="stack-copy">
+                    <strong>{order.number}</strong>
+                    <span>{order.customer?.name}</span>
+                    <span className="muted">
+                      {order.bike?.brand} {order.bike?.model}
+                    </span>
+                  </div>
+                  <div className="stack-meta">
+                    <span className="badge info">{OS_STATUS[order.status] || order.status}</span>
+                    <span className="money">{formatBRL(order.total)}</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+          <LoadMore hasMore={hasMore} loading={loadingMore} onClick={() => void loadMore()} />
+        </article>
+      ) : (
+        <div className="kanban">
+          {columns.map((columnStatus) => (
+            <div className="kanban-col" key={columnStatus}>
+              <h3>
+                {OS_STATUS[columnStatus]} · {counts[columnStatus] || 0}
+              </h3>
+              {(lists[columnStatus] || []).map((order) => (
+                <Link className="os-card" key={order._id} to={`/oficina/${order._id}`}>
+                  <strong>{order.number}</strong>
+                  <span className="os-card-line">{order.customer?.name}</span>
+                  <span className="os-card-line">
+                    {order.bike?.brand} {order.bike?.model}
+                  </span>
+                  <span className="os-card-price money">{formatBRL(order.total)}</span>
+                </Link>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
 
       {open ? (
         <Modal title="Abrir ordem de serviço" onClose={() => setOpen(false)}>

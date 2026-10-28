@@ -384,6 +384,19 @@ export interface DashboardData {
   pendingApplyCount?: number;
   waitingParts?: WorkOrder[];
   waitingPartsDays?: number;
+  neededParts?: NeededPart[];
+}
+
+export interface NeededPart {
+  productId: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  unitCost?: number;
+  currentStock: number;
+  supplierId: string;
+  supplierName: string;
+  orders: string[];
 }
 
 export interface SearchResults {
@@ -410,6 +423,7 @@ export interface Purchase {
   supplier: Supplier | string;
   status: string;
   notes: string;
+  invoiceNumber?: string;
   items: PurchaseItem[];
   itemsTotal: number;
   operator?: string;
@@ -467,6 +481,7 @@ export interface ShelfLabel {
     name: string;
     barcode: string;
     price: number;
+    image?: string;
     text: string;
   }[];
   store: Receipt['store'];

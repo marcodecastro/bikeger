@@ -356,16 +356,13 @@ async function resolveCharge(relatedType, relatedId) {
     };
   }
 
-  const order = await WorkOrder.findById(relatedId).populate('customer');
-  if (!order) throw httpError(404, 'OS não encontrada');
-  assertCents(order.total, 'total da OS');
-  const products = await Product.find({ _id: { $in: order.parts.map((item) => item.product) } });
-  const byId = new Map(products.map((product) => [String(product._id), product]));
-  return {
-    amount: order.total,
-    customer: order.customer,
-    payments: order.payments,
-    items: [
+  if (relatedType === 'workOrder') {
+    const order = await WorkOrder.findById(relatedId).populate('customer');
+    if (!order) throw httpError(404, 'OS não encontrada');
+    assertCents(order.total, 'total da OS');
+    const products = await Product.find({ _id: { $in: order.parts.map((item) => item.product) } });
+    const byId = new Map(products.map((product) => [String(product._id), product]));
+    const items = [
       ...order.parts.map((item) => {
         const product = byId.get(String(item.product));
         return {
@@ -388,11 +385,20 @@ async function resolveCharge(relatedType, relatedId) {
         unitPrice: item.price,
         total: item.total,
         unit: 'UN',
-        ncm: '00000000',
+        ncm: '87149990',
         cfop: '5933',
         icmsOrigin: '0',
         icmsCst: '102',
       })),
-    ],
-  };
+    ];
+    if (!items.length) throw httpError(400, 'OS sem peça nem serviço não emite NFC-e');
+    return {
+      amount: order.total,
+      customer: order.customer,
+      payments: order.payments,
+      items,
+    };
+  }
+
+  throw httpError(400, 'Tipo de documento fiscal inválido');
 }

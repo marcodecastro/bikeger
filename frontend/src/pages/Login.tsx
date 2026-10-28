@@ -36,6 +36,7 @@ export function Login() {
       .catch(() => undefined);
   }, []);
 
+  if (user?.mustChangePassword) return <Navigate to="/conta" replace />;
   if (user) return <Navigate to={from || homeFor(user.role)} replace />;
 
   async function submit(event: FormEvent) {
@@ -43,7 +44,7 @@ export function Login() {
     try {
       setError('');
       const signed = await login(loginName, password);
-      navigate(from || homeFor(signed.role), { replace: true });
+      navigate(signed.mustChangePassword ? '/conta' : from || homeFor(signed.role), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível entrar');
     }

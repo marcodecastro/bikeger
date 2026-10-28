@@ -4,7 +4,22 @@ import { get, post } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { OS_STATUS } from '../lib/labels';
 import { formatBRL } from '../lib/money';
-import type { DashboardData } from '../types';
+import type { DashboardData, NeededPart } from '../types';
+
+function groupNeededParts(parts: NeededPart[]) {
+  const groups = new Map<string, { supplierId: string; supplierName: string; items: NeededPart[] }>();
+  for (const part of parts) {
+    const key = part.supplierId || 'none';
+    const current = groups.get(key) || {
+      supplierId: part.supplierId,
+      supplierName: part.supplierName || 'Sem fornecedor na ficha',
+      items: [],
+    };
+    current.items.push(part);
+    groups.set(key, current);
+  }
+  return [...groups.values()];
+}
 
 export function Dashboard() {
   const { can } = useAuth();
@@ -178,28 +193,74 @@ export function Dashboard() {
         </article>
       </div>
 
-      {data.waitingParts?.length ? (
+      {data.waitingParts?.length || data.neededParts?.length ? (
         <article className="card" style={{ marginTop: 16 }}>
           <h3>OS parada — aguardando peças</h3>
           <p className="muted">
-            Há {data.waitingPartsDays || 3} dia(s) ou mais sem o lote chegar. Confira a compra.
+            {data.waitingParts?.length
+              ? `Há ${data.waitingPartsDays || 3} dia(s) ou mais sem o lote chegar. Confira a compra.`
+              : 'Peças das OS em espera, com quantidade e fornecedor da ficha.'}
           </p>
-          <div className="stack-list">
-            {data.waitingParts.map((order) => (
-              <Link className="stack-item" key={order._id} to={`/oficina/${order._id}`}>
-                <div className="stack-copy">
-                  <strong>{order.number}</strong>
-                  <span>{order.customer?.name}</span>
-                  <span className="muted">
-                    {order.bike?.brand} {order.bike?.model}
-                  </span>
+          {data.waitingParts?.length ? (
+            <div className="stack-list">
+              {data.waitingParts.map((order) => (
+                <Link className="stack-item" key={order._id} to={`/oficina/${order._id}`}>
+                  <div className="stack-copy">
+                    <strong>{order.number}</strong>
+                    <span>{order.customer?.name}</span>
+                    <span className="muted">
+                      {order.bike?.brand} {order.bike?.model}
+                    </span>
+                  </div>
+                  <div className="stack-meta">
+                    <span className="badge warn">aguardando</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : null}
+          {data.neededParts?.length ? (
+            <div style={{ marginTop: data.waitingParts?.length ? 16 : 0 }}>
+              <h4>Pedido para montar</h4>
+              {groupNeededParts(data.neededParts).map((group) => (
+                <div key={group.supplierId || 'none'} className="stack-list" style={{ marginTop: 8 }}>
+                  <div className="stack-item stack-item-static">
+                    <div className="stack-copy">
+                      <strong>{group.supplierName}</strong>
+                      <span className="muted">
+                        {group.items.reduce((sum, item) => sum + item.quantity, 0)} peça(s)
+                      </span>
+                    </div>
+                    {can('stock.write') ? (
+                      <Link
+                        className="btn btn-primary"
+                        to={`/compras?fromOs=1${group.supplierId ? `&supplier=${encodeURIComponent(group.supplierId)}` : ''}`}
+                      >
+                        Montar compra
+                      </Link>
+                    ) : (
+                      <span className="muted">Peça ao estoque para montar o pedido.</span>
+                    )}
+                  </div>
+                  {group.items.map((part) => (
+                    <div className="stack-item stack-item-static" key={part.productId}>
+                      <div className="stack-copy">
+                        <strong>
+                          {part.quantity}× {part.name}
+                        </strong>
+                        <span className="muted">
+                          {part.sku}
+                          {part.supplierName ? ` · ${part.supplierName}` : ''}
+                          {part.orders.length ? ` · ${part.orders.join(', ')}` : ''}
+                        </span>
+                        <span className="muted">{part.currentStock} em estoque</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className="stack-meta">
-                  <span className="badge warn">aguardando</span>
-                </div>
-              </Link>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : null}
         </article>
       ) : null}
 

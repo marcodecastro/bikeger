@@ -32,6 +32,7 @@ const links = [
 export function Layout() {
   const navigate = useNavigate();
   const { user, logout, can } = useAuth();
+  const locked = Boolean(user?.mustChangePassword);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResults | null>(null);
   const [register, setRegister] = useState<CashRegister | null>(null);
@@ -50,9 +51,9 @@ export function Layout() {
   }, []);
 
   useEffect(() => {
-    if (!can('cash')) return;
+    if (locked || !can('cash')) return;
     get<CashRegister | null>('/cash/current').then(setRegister).catch(() => undefined);
-  }, [can]);
+  }, [can, locked]);
 
   useEffect(() => {
     if (query.trim().length < 2) {
@@ -73,7 +74,9 @@ export function Layout() {
     navigate(path);
   }
 
-  const visibleLinks = links.filter((link) => can(link.cap) || (link.cap === 'customers.read' && can('customers')));
+  const visibleLinks = locked
+    ? []
+    : links.filter((link) => can(link.cap) || (link.cap === 'customers.read' && can('customers')));
 
   return (
     <div className="app">
@@ -114,6 +117,9 @@ export function Layout() {
       </aside>
       <main className="content">
         <header className="topbar">
+          {locked ? (
+            <p className="muted">Troque a senha para abrir o painel.</p>
+          ) : (
           <div className="search">
             <input
               value={query}
@@ -176,6 +182,7 @@ export function Layout() {
               </div>
             ) : null}
           </div>
+          )}
         </header>
         <Outlet />
         <NoteMasterFooter />

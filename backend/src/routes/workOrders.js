@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { WorkOrder } from '../models/WorkOrder.js';
 import { asyncHandler, httpError } from '../utils/asyncHandler.js';
 import {
   addPartToWorkOrder,
@@ -9,6 +8,7 @@ import {
   consumePartOnWorkOrder,
   createWorkOrder,
   listWorkOrderBoard,
+  listWorkOrders,
   populateOrder,
   removePartFromWorkOrder,
   removeServiceFromWorkOrder,
@@ -17,7 +17,6 @@ import {
 import { buildReceipt } from '../services/printerService.js';
 import { operatorName, requireCapability } from '../middleware/auth.js';
 import { hideCostIfNeeded } from '../utils/hideCost.js';
-import { listLimit } from '../utils/listLimit.js';
 import { getSettings } from '../models/Settings.js';
 
 function jsonWithoutCost(req, res, data, status = 200) {
@@ -29,16 +28,14 @@ export const workOrdersRouter = Router();
 workOrdersRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    const { status, customer, bike } = req.query;
-    const filter = {};
-    if (status) filter.status = status;
-    if (customer) filter.customer = customer;
-    if (bike) filter.bike = bike;
-    const orders = await WorkOrder.find(filter)
-      .populate('customer')
-      .populate('bike')
-      .sort({ createdAt: -1 })
-      .limit(listLimit(req.query.limit));
+    const orders = await listWorkOrders({
+      status: req.query.status,
+      customer: req.query.customer,
+      bike: req.query.bike,
+      q: req.query.q,
+      skip: req.query.skip,
+      limit: req.query.limit,
+    });
     jsonWithoutCost(req, res, orders);
   }),
 );

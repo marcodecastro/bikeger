@@ -18,6 +18,7 @@ const purchaseSchema = new mongoose.Schema(
     supplier: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier', required: true },
     status: { type: String, enum: ['recebida'], default: 'recebida' },
     notes: { type: String, default: '' },
+    invoiceNumber: { type: String, default: '', trim: true, index: true },
     items: { type: [purchaseItemSchema], default: [] },
     itemsTotal: { type: Number, default: 0 },
     operator: { type: String, default: '' },
@@ -27,5 +28,6 @@ const purchaseSchema = new mongoose.Schema(
 );
 
 purchaseSchema.index({ createdAt: -1 });
+purchaseSchema.index({ supplier: 1, receivedAt: -1 });
 
 export const Purchase = mongoose.model('Purchase', purchaseSchema);
