@@ -995,19 +995,20 @@ th {
 
 .nm-footer {
   margin-top: auto;
-  padding: 20px 24px 28px;
+  padding: 6px 16px 8px;
   border-top: 1px solid var(--line);
   text-align: center;
+  line-height: 1.25;
 }
 
 .nm-footer p {
-  margin: 0 0 8px;
-  font-size: 12px;
+  margin: 0;
+  font-size: 11px;
   color: var(--muted);
 }
 
-.nm-footer p:last-child {
-  margin-bottom: 0;
+.nm-footer p + p {
+  margin-top: 2px;
 }
 
 .nm-footer a {
@@ -1018,7 +1019,7 @@ th {
 .login-screen .nm-footer {
   width: min(560px, 100%);
   margin-top: 0;
-  padding-top: 20px;
+  padding-top: 8px;
 }
 
 .logo-preview {
@@ -1312,11 +1313,11 @@ th {
   }
 
   .nm-footer {
-    padding: 14px 12px calc(16px + env(safe-area-inset-bottom, 0px));
+    padding: 4px 12px calc(6px + env(safe-area-inset-bottom, 0px));
   }
 
   .login-screen .nm-footer {
-    padding: 8px 0 0;
+    padding: 6px 0 0;
   }
 
   .nm-footer p {
