@@ -84,6 +84,7 @@ test('cupom misturado sem cliente: serviço não reserva estoque e peça baixa',
   assert.match(receipt.text, /CUPOM NAO FISCAL/);
   assert.match(receipt.text, /Consumidor/);
   assert.match(receipt.text, /Servicos/);
+  assert.doesNotMatch(receipt.text, /notemaster/i);
 
   await cancelSale(sale._id, { operator: 'teste', notes: 'teste' });
   const afterCancel = await Product.findById(product._id);

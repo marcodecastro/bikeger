@@ -3,10 +3,29 @@ import { getSettings } from '../models/Settings.js';
 
 const ESC = '\x1B';
 const GS = '\x1D';
+const NBSP = '\u00a0';
+
+const PAYMENT_LABELS = {
+  dinheiro: 'Dinheiro',
+  pix: 'PIX',
+  cartao_credito: 'Credito',
+  cartao_debito: 'Debito',
+  mercado_pago: 'Mercado Pago',
+};
+
+function money(cents) {
+  return formatBRL(cents).replace(/R\$\s+/, `R$${NBSP}`);
+}
 
 function line(width, left, right = '') {
-  const space = Math.max(1, width - left.length - right.length);
-  return `${left}${' '.repeat(space)}${right}`;
+  const rightText = String(right);
+  const maxLeft = Math.max(0, width - rightText.length - (rightText ? 1 : 0));
+  let leftText = String(left);
+  if (leftText.length > maxLeft) {
+    leftText = maxLeft <= 1 ? leftText.slice(0, maxLeft) : `${leftText.slice(0, maxLeft - 1)}.`;
+  }
+  const space = Math.max(rightText ? 1 : 0, width - leftText.length - rightText.length);
+  return `${leftText}${' '.repeat(space)}${rightText}`;
 }
 
 function dashed(width) {
@@ -14,10 +33,18 @@ function dashed(width) {
 }
 
 function wrap(text, width) {
-  const words = String(text).split(/\s+/);
+  const words = String(text).split(/\s+/).filter(Boolean);
   const rows = [];
   let current = '';
   for (const word of words) {
+    if (word.length > width) {
+      if (current) {
+        rows.push(current);
+        current = '';
+      }
+      for (let i = 0; i < word.length; i += width) rows.push(word.slice(i, i + width));
+      continue;
+    }
     if ((current + ' ' + word).trim().length > width) {
       if (current) rows.push(current);
       current = word;
@@ -27,6 +54,69 @@ function wrap(text, width) {
   }
   if (current) rows.push(current);
   return rows;
+}
+
+function center(text, width) {
+  const value = String(text);
+  if (value.length >= width) return value.slice(0, width);
+  const pad = Math.floor((width - value.length) / 2);
+  return `${' '.repeat(pad)}${value}`;
+}
+
+function itemRows(width, item) {
+  const label = `${item.quantity}x ${item.name}`;
+  const amount = money(item.total);
+  const nameRows = wrap(label, width);
+  const rows = [];
+  if (nameRows.length === 1 && nameRows[0].length + 1 + amount.length <= width) {
+    rows.push(line(width, nameRows[0], amount));
+  } else {
+    rows.push(...nameRows);
+    rows.push(line(width, '', amount));
+  }
+  if (item.quantity > 1) {
+    rows.push(line(width, `  ${item.quantity} x ${money(item.unitPrice)}`, ''));
+  }
+  return rows;
+}
+
+function storeFooter(settings, tagline) {
+  const name = String(settings.storeName || 'Loja').trim() || 'Loja';
+  return [name, tagline].filter(Boolean);
+}
+
+function toEscPos(text) {
+  return (
+    ESC +
+    '@' +
+    ESC +
+    'a' +
+    '\x01' +
+    text
+      .split('\n')
+      .map((row, index) => (index < 3 ? row : ESC + 'a' + '\x00' + row))
+      .join('\n') +
+    '\n\n\n' +
+    GS +
+    'V' +
+    '\x00'
+  );
+}
+
+function receiptPayload(settings, width, text) {
+  return {
+    text,
+    escposBase64: Buffer.from(toEscPos(text), 'binary').toString('base64'),
+    width: settings.printerWidth,
+    columns: width,
+    store: {
+      name: settings.storeName,
+      phone: settings.storePhone,
+      address: settings.storeAddress,
+      cnpj: settings.storeCnpj,
+      logo: settings.storeLogo || '',
+    },
+  };
 }
 
 export async function buildReceipt({ kind, number, customerName, items, totals, payments, extraLines = [] }) {
@@ -48,63 +138,37 @@ export async function buildReceipt({ kind, number, customerName, items, totals, 
   rows.push(dashed(width));
 
   for (const item of items) {
-    rows.push(`${item.quantity}x ${item.name}`);
-    rows.push(line(width, `  ${formatBRL(item.unitPrice)}`, formatBRL(item.total)));
+    rows.push(...itemRows(width, item));
   }
 
   rows.push(dashed(width));
   if (totals.laborTotal !== undefined) {
-    rows.push(line(width, 'Servicos', formatBRL(totals.laborTotal)));
-    rows.push(line(width, 'Pecas', formatBRL(totals.partsTotal)));
+    rows.push(line(width, 'Servicos', money(totals.laborTotal)));
+    rows.push(line(width, 'Pecas', money(totals.partsTotal)));
   }
-  rows.push(line(width, 'Subtotal', formatBRL(totals.subtotal ?? totals.total)));
-  if (totals.discount) rows.push(line(width, 'Desconto', formatBRL(totals.discount)));
-  rows.push(line(width, 'TOTAL', formatBRL(totals.total)));
+  rows.push(line(width, 'Subtotal', money(totals.subtotal ?? totals.total)));
+  if (totals.discount) rows.push(line(width, 'Desconto', money(totals.discount)));
+  rows.push(line(width, 'TOTAL', money(totals.total)));
   rows.push(dashed(width));
 
   for (const payment of payments || []) {
-    rows.push(line(width, payment.method, formatBRL(payment.amount)));
+    const label = PAYMENT_LABELS[payment.method] || payment.method;
+    rows.push(line(width, label, money(payment.amount)));
   }
 
   for (const extra of extraLines) {
-    rows.push(...wrap(extra, width));
+    rows.push(...wrap(String(extra).replace(/R\$\s+/g, `R$${NBSP}`), width));
   }
 
   rows.push('');
-  rows.push(...wrap(settings.receiptFooter, width));
+  if (settings.receiptFooter) rows.push(...wrap(settings.receiptFooter, width));
   rows.push('');
-  rows.push('BikeGer — loja + oficina');
-  rows.push('notemaster');
+  rows.push('');
+  rows.push(...wrap('Cuidamos da sua bike para você focar apenas no caminho.', width));
+  rows.push(center('Obrigado pela preferência!', width));
   rows.push('');
 
-  const text = rows.join('\n');
-  const escpos =
-    ESC +
-    '@' +
-    ESC +
-    'a' +
-    '\x01' +
-    text
-      .split('\n')
-      .map((row, index) => (index < 3 ? row : ESC + 'a' + '\x00' + row))
-      .join('\n') +
-    '\n\n\n' +
-    GS +
-    'V' +
-    '\x00';
-
-  return {
-    text,
-    escposBase64: Buffer.from(escpos, 'binary').toString('base64'),
-    width: settings.printerWidth,
-    store: {
-      name: settings.storeName,
-      phone: settings.storePhone,
-      address: settings.storeAddress,
-      cnpj: settings.storeCnpj,
-      logo: settings.storeLogo || '',
-    },
-  };
+  return receiptPayload(settings, width, rows.join('\n'));
 }
 
 export async function buildDayReportReceipt(day) {
@@ -123,20 +187,20 @@ export async function buildDayReportReceipt(day) {
   rows.push(new Date(day.closedAt || Date.now()).toLocaleString('pt-BR'));
   if (day.operator) rows.push(`Operador: ${day.operator}`);
   rows.push(dashed(width));
-  rows.push(line(width, 'Fundo', formatBRL(day.openingAmount || 0)));
-  rows.push(line(width, 'Dinheiro contado', formatBRL(day.countedCash || 0)));
-  rows.push(line(width, 'Gaveteiro esperado', formatBRL(day.expectedCash || 0)));
-  rows.push(line(width, 'Diferenca', formatBRL(difference)));
+  rows.push(line(width, 'Fundo', money(day.openingAmount || 0)));
+  rows.push(line(width, 'Dinheiro contado', money(day.countedCash || 0)));
+  rows.push(line(width, 'Gaveteiro esperado', money(day.expectedCash || 0)));
+  rows.push(line(width, 'Diferenca', money(difference)));
   rows.push(differenceLabel);
   rows.push(dashed(width));
-  rows.push(line(width, 'PIX', formatBRL(day.byMethod?.pix || 0)));
-  rows.push(line(width, 'Cartao', formatBRL(card)));
-  rows.push(line(width, 'Dinheiro recebido', formatBRL(day.byMethod?.dinheiro || 0)));
-  rows.push(line(width, 'Mercado Pago', formatBRL(day.byMethod?.mercado_pago || 0)));
-  rows.push(line(width, 'Sangria', formatBRL(day.sangria || 0)));
-  rows.push(line(width, 'Suprimento', formatBRL(day.suprimento || 0)));
-  rows.push(line(width, `OS (${day.osCount || 0})`, formatBRL(day.osTotal || 0)));
-  if (day.estorno) rows.push(line(width, 'Estorno', formatBRL(day.estorno)));
+  rows.push(line(width, 'PIX', money(day.byMethod?.pix || 0)));
+  rows.push(line(width, 'Cartao', money(card)));
+  rows.push(line(width, 'Dinheiro recebido', money(day.byMethod?.dinheiro || 0)));
+  rows.push(line(width, 'Mercado Pago', money(day.byMethod?.mercado_pago || 0)));
+  rows.push(line(width, 'Sangria', money(day.sangria || 0)));
+  rows.push(line(width, 'Suprimento', money(day.suprimento || 0)));
+  rows.push(line(width, `OS (${day.osCount || 0})`, money(day.osTotal || 0)));
+  if (day.estorno) rows.push(line(width, 'Estorno', money(day.estorno)));
   rows.push(dashed(width));
   if (day.fiscalEnabled) {
     rows.push(`NFC-e pendente: ${day.nfcePending || 0}`);
@@ -148,38 +212,10 @@ export async function buildDayReportReceipt(day) {
     rows.push(...wrap(day.notes, width));
   }
   rows.push('');
-  rows.push('BikeGer — fechamento');
-  rows.push('notemaster');
+  rows.push(...storeFooter(settings, 'fechamento do dia'));
   rows.push('');
 
-  const text = rows.join('\n');
-  const escpos =
-    ESC +
-    '@' +
-    ESC +
-    'a' +
-    '\x01' +
-    text
-      .split('\n')
-      .map((row, index) => (index < 3 ? row : ESC + 'a' + '\x00' + row))
-      .join('\n') +
-    '\n\n\n' +
-    GS +
-    'V' +
-    '\x00';
-
-  return {
-    text,
-    escposBase64: Buffer.from(escpos, 'binary').toString('base64'),
-    width: settings.printerWidth,
-    store: {
-      name: settings.storeName,
-      phone: settings.storePhone,
-      address: settings.storeAddress,
-      cnpj: settings.storeCnpj,
-      logo: settings.storeLogo || '',
-    },
-  };
+  return receiptPayload(settings, width, rows.join('\n'));
 }
 
 export async function buildShelfLabels(products) {
@@ -193,7 +229,7 @@ export async function buildShelfLabels(products) {
       settings.storeName,
       ...wrap(name, 24).slice(0, 2),
       sku,
-      formatBRL(product.salePrice || 0),
+      money(product.salePrice || 0),
       barcode,
     ];
     const text = rows.filter(Boolean).join('\n');

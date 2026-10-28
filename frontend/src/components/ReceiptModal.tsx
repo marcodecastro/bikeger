@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import type { Receipt, ShelfLabel } from '../types';
 import { Modal } from './Modal';
 import { formatBRL } from '../lib/money';
@@ -48,7 +49,14 @@ export function ReceiptModal({ receipt, onClose, title = 'Cupom térmico' }: Rec
           ))}
         </div>
       ) : (
-        <div className="print-area receipt">
+        <div
+          className="print-area receipt receipt-paper"
+          style={
+            receipt.columns
+              ? ({ ['--receipt-cols' as string]: String(receipt.columns) } as CSSProperties)
+              : undefined
+          }
+        >
           {receipt.store?.logo ? (
             <img className="receipt-logo" src={receipt.store.logo} alt={receipt.store.name || 'Logo'} />
           ) : null}

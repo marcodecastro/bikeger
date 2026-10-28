@@ -327,6 +327,7 @@ export interface Receipt {
   text: string;
   escposBase64: string;
   width: number;
+  columns?: number;
   store: {
     name: string;
     phone: string;
