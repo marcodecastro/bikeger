@@ -1,4 +1,4 @@
-import { OS_STATUS } from '../lib/labels';
+import { isOsQuoteStatus, OS_STATUS } from '../lib/labels';
 import { formatBRL } from '../lib/money';
 import type { WorkOrder } from '../types';
 import { Modal } from './Modal';
@@ -11,7 +11,7 @@ interface WorkOrderSheetProps {
 }
 
 export function WorkOrderSheet({ order, storeName, storeLogo, onClose }: WorkOrderSheetProps) {
-  const title = ['diagnostico', 'orcamento'].includes(order.status) ? 'Orçamento' : 'Ordem de serviço';
+  const title = isOsQuoteStatus(order.status) ? 'Orçamento' : 'Ordem de serviço';
 
   return (
     <Modal title={`${title} ${order.number}`} onClose={onClose}>

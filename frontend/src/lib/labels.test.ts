@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allowedOsStatuses, isOsTerminal, OS_KANBAN, COUNTER_PAYMENT_METHODS, BRAZIL_UFS } from './labels';
+import { allowedOsStatuses, isOsQuoteStatus, isOsTerminal, OS_KANBAN, COUNTER_PAYMENT_METHODS, BRAZIL_UFS } from './labels';
 
 describe('máquina de status da OS', () => {
   it('oficina pode pular etapa e voltar, mas só entrega a partir de pronta', () => {
@@ -11,6 +11,13 @@ describe('máquina de status da OS', () => {
     );
     expect(allowedOsStatuses('aberta')).not.toContain('entregue');
     expect(isOsTerminal('pronta')).toBe(false);
+  });
+
+  it('aberta, diagnóstico e orçamento são a mesma fase de cotação', () => {
+    expect(isOsQuoteStatus('aberta')).toBe(true);
+    expect(isOsQuoteStatus('diagnostico')).toBe(true);
+    expect(isOsQuoteStatus('orcamento')).toBe(true);
+    expect(isOsQuoteStatus('em_servico')).toBe(false);
   });
 
   it('entregue e cancelada só mostram o próprio status', () => {

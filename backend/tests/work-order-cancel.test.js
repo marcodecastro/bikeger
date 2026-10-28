@@ -64,6 +64,7 @@ async function makeOrder(sku, stock) {
 
 test('PATCH status=cancelada libera peça reservada sem mexer no estoque físico', async () => {
   const { product, order } = await makeOrder('C1-RES', 5);
+  await updateWorkOrder(order._id, { status: 'em_servico' });
   await addPartToWorkOrder(order._id, { productId: product._id, quantity: 2 });
 
   let stock = await Product.findById(product._id);
@@ -87,6 +88,7 @@ test('PATCH status=cancelada libera peça reservada sem mexer no estoque físico
 
 test('PATCH status=cancelada devolve peça já consumida ao estoque físico', async () => {
   const { product, order } = await makeOrder('C1-CON', 5);
+  await updateWorkOrder(order._id, { status: 'em_servico' });
   const withPart = await addPartToWorkOrder(order._id, { productId: product._id, quantity: 2 });
   await consumePartOnWorkOrder(order._id, withPart.parts[0]._id);
 
@@ -111,6 +113,7 @@ test('PATCH status=cancelada devolve peça já consumida ao estoque físico', as
 
 test('cancelamento misto libera reserva e estorna consumo', async () => {
   const { product, order } = await makeOrder('C1-MIX', 6);
+  await updateWorkOrder(order._id, { status: 'em_servico' });
   const first = await addPartToWorkOrder(order._id, { productId: product._id, quantity: 2 });
   await consumePartOnWorkOrder(order._id, first.parts[0]._id);
   await addPartToWorkOrder(order._id, { productId: product._id, quantity: 1 });
@@ -139,6 +142,7 @@ test('OS entregue não pode ser cancelada nem por PATCH nem pelo endpoint', asyn
 
 test('cancelar de novo a mesma OS é idempotente e não mexe no estoque', async () => {
   const { product, order } = await makeOrder('C1-IDEM', 4);
+  await updateWorkOrder(order._id, { status: 'em_servico' });
   await addPartToWorkOrder(order._id, { productId: product._id, quantity: 1 });
   await updateWorkOrder(order._id, { status: 'cancelada' });
 

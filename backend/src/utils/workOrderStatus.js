@@ -11,7 +11,7 @@ export const WORK_ORDER_FLOW = [
   'entregue',
 ];
 
-export const WORK_ORDER_QUOTE_STATUSES = ['diagnostico', 'orcamento'];
+export const WORK_ORDER_QUOTE_STATUSES = ['aberta', 'diagnostico', 'orcamento'];
 
 export const WORK_ORDER_RESERVE_STATUSES = ['aguardando_pecas', 'em_servico', 'pronta', 'entregue'];
 

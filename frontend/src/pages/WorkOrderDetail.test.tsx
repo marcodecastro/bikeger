@@ -361,14 +361,119 @@ describe('OS em diagnóstico', () => {
     );
 
     expect(await screen.findByRole('button', { name: 'Enviar orçamento' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Incluir no orçamento' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Incluir peça no orçamento' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Lançar serviço' })).toBeInTheDocument();
+    expect(screen.getByText(/Lance mão de obra e peça nesta mesma OS/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reservar peça' })).not.toBeInTheDocument();
-    expect(screen.getByText(/orçamento, sem reservar/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Enviar orçamento' }));
     expect(post).toHaveBeenCalledWith('/notifications/work-orders/os1/quote');
     expect(open).toHaveBeenCalledWith('https://wa.me/5511988880000', '_blank');
     open.mockRestore();
+  });
+});
+
+describe('OS aberta', () => {
+  const product = {
+    _id: 'p1',
+    sku: 'COR-1',
+    barcode: '',
+    name: 'Corrente',
+    description: '',
+    category: 'Transmissão',
+    brand: '',
+    model: '',
+    unit: 'UN',
+    salePrice: 5000,
+    currentStock: 4,
+    availableStock: 4,
+    minStock: 0,
+    location: '',
+    active: true,
+    images: [],
+  };
+
+  beforeEach(() => {
+    get.mockReset();
+    post.mockReset();
+    patch.mockReset();
+    del.mockReset();
+    can.mockReset();
+    get.mockImplementation(async (path: string) => {
+      if (path === '/work-orders/os1') {
+        return { ...order, status: 'aberta', laborTotal: 0, partsTotal: 0, total: 0 };
+      }
+      if (path.startsWith('/products')) return [product];
+      if (path.startsWith('/services')) {
+        return [{ _id: 'svc1', name: 'Regulagem de câmbio', description: '', category: '', price: 8000, estimatedMinutes: 30, active: true }];
+      }
+      return [];
+    });
+  });
+
+  it('lança serviço e peça no mesmo orçamento sem reservar estoque', async () => {
+    const user = userEvent.setup();
+    can.mockReturnValue(true);
+    post.mockImplementation(async (path: string) => {
+      if (path === '/work-orders/os1/services') {
+        return {
+          ...order,
+          status: 'aberta',
+          services: [{ _id: 's1', name: 'Regulagem de câmbio', price: 8000, quantity: 1, total: 8000 }],
+          laborTotal: 8000,
+          partsTotal: 0,
+          total: 8000,
+        };
+      }
+      if (path === '/work-orders/os1/parts') {
+        return {
+          ...order,
+          status: 'aberta',
+          services: [{ _id: 's1', name: 'Regulagem de câmbio', price: 8000, quantity: 1, total: 8000 }],
+          parts: [{
+            _id: 'pt1',
+            product: 'p1',
+            sku: 'COR-1',
+            name: 'Corrente',
+            quantity: 1,
+            unitPrice: 5000,
+            total: 5000,
+            stockStatus: 'orcamento',
+          }],
+          laborTotal: 8000,
+          partsTotal: 5000,
+          total: 13000,
+        };
+      }
+      return order;
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/oficina/os1']}>
+        <Routes>
+          <Route path="/oficina/:id" element={<WorkOrderDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Serviços e peças' })).toBeInTheDocument();
+    expect(screen.getByText(/Lance mão de obra e peça nesta mesma OS/)).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Serviço do catálogo'), 'svc1');
+    await user.click(screen.getByRole('button', { name: 'Lançar serviço' }));
+    expect(post).toHaveBeenCalledWith('/work-orders/os1/services', { serviceId: 'svc1', quantity: 1 });
+    expect(await screen.findByText('1x Regulagem de câmbio')).toBeInTheDocument();
+
+    const search = screen.getByRole('combobox', { name: 'Peça do estoque' });
+    await user.click(search);
+    await user.type(search, 'Corrente');
+    await user.click(await screen.findByRole('option', { name: /Corrente/ }));
+    await user.click(screen.getByRole('button', { name: 'Incluir peça no orçamento' }));
+
+    expect(post).toHaveBeenCalledWith('/work-orders/os1/parts', { productId: 'p1', quantity: 1 });
+    expect(await screen.findByText('1x Corrente')).toBeInTheDocument();
+    expect(screen.getByText('orçamento')).toBeInTheDocument();
+    expect(screen.getByText('1x Regulagem de câmbio')).toBeInTheDocument();
   });
 });
 

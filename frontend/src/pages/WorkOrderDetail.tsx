@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { del, get, patch, post } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { OS_STATUS, PAYMENT_METHODS, COUNTER_PAYMENT_METHODS, allowedOsStatuses, isOsTerminal } from '../lib/labels';
+import {
+  OS_STATUS,
+  PAYMENT_METHODS,
+  COUNTER_PAYMENT_METHODS,
+  allowedOsStatuses,
+  isOsQuoteStatus,
+  isOsTerminal,
+} from '../lib/labels';
 import { formatBRL, subtractCents } from '../lib/money';
 import { isOpenPixStatus, PIX_POLL_MS } from '../lib/paymentPoll';
 import { useBusy } from '../lib/useBusy';
@@ -22,6 +29,9 @@ export function WorkOrderDetail() {
   const [productLabel, setProductLabel] = useState('');
   const [partQty, setPartQty] = useState(1);
   const [serviceId, setServiceId] = useState('');
+  const [serviceName, setServiceName] = useState('');
+  const [servicePrice, setServicePrice] = useState(0);
+  const [serviceQty, setServiceQty] = useState(1);
   const [payMethod, setPayMethod] = useState<(typeof COUNTER_PAYMENT_METHODS)[number]>('dinheiro');
   const [payAmount, setPayAmount] = useState(0);
   const [pix, setPix] = useState<MpPixPayment | null>(null);
@@ -115,6 +125,7 @@ export function WorkOrderDetail() {
 
   const openAmount = subtractCents(order.total, order.paidAmount);
   const closed = isOsTerminal(order.status);
+  const quoting = isOsQuoteStatus(order.status);
   const statusOptions = allowedOsStatuses(order.status).filter((status) => {
     if (status !== 'cancelada') return true;
     if (order.paidAmount <= 0) return true;
@@ -159,7 +170,14 @@ export function WorkOrderDetail() {
 
   async function addService() {
     await runOs(async () => {
-      setOrder(await post<WorkOrder>(`/work-orders/${id}/services`, { serviceId, quantity: 1 }));
+      const payload = serviceId
+        ? { serviceId, quantity: serviceQty }
+        : { name: serviceName.trim(), price: servicePrice, quantity: serviceQty };
+      setOrder(await post<WorkOrder>(`/work-orders/${id}/services`, payload));
+      setServiceId('');
+      setServiceName('');
+      setServicePrice(0);
+      setServiceQty(1);
     }, 'Falha ao lançar serviço');
   }
 
@@ -238,7 +256,7 @@ export function WorkOrderDetail() {
               Avisar no WhatsApp
             </button>
           ) : null}
-          {['aberta', 'diagnostico', 'orcamento'].includes(order.status) ? (
+          {quoting ? (
             <button
               type="button"
               className="btn btn-primary"
@@ -428,87 +446,137 @@ export function WorkOrderDetail() {
         </article>
       </div>
 
-      <div className="grid grid-2" style={{ marginTop: 16 }}>
-        <article className="card">
-          <h3>Serviços</h3>
-          {order.services.map((item) => (
-            <div className="cart-line" key={item._id}>
-              <span>{item.name}</span>
-              <span className="money">{formatBRL(item.total)}</span>
-              {closed ? null : (
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  disabled={busy}
-                  onClick={() =>
-                    void run(async () => {
-                      try {
-                        setError('');
-                        setOrder(await del(`/work-orders/${id}/services/${item._id}`));
-                      } catch (err) {
-                        setError(err instanceof Error ? err.message : 'Falha ao remover serviço');
-                      }
-                    })
-                  }
-                >
-                  ×
-                </button>
-              )}
-            </div>
-          ))}
-          {closed ? null : (
+      <article className="card" style={{ marginTop: 16 }}>
+        <h3>Serviços e peças</h3>
+        <p className="muted">
+          {quoting
+            ? 'Lance mão de obra e peça nesta mesma OS. O orçamento não reserva estoque; a reserva entra depois da aprovação.'
+            : 'Peças nesta etapa reservam o estoque. Consumir baixa de verdade.'}
+        </p>
+        {!order.services.length && !order.parts.length ? (
+          <p className="muted">Nenhum item ainda. Acrescente serviço e peça abaixo — os dois entram neste orçamento.</p>
+        ) : null}
+
+        <h4 style={{ marginTop: 16 }}>Mão de obra</h4>
+        {order.services.map((item) => (
+          <div className="cart-line" key={item._id}>
+            <span>
+              {item.quantity}x {item.name}
+            </span>
+            <span className="money">{formatBRL(item.total)}</span>
+            {closed ? null : (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    try {
+                      setError('');
+                      setOrder(await del(`/work-orders/${id}/services/${item._id}`));
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Falha ao remover serviço');
+                    }
+                  })
+                }
+              >
+                ×
+              </button>
+            )}
+          </div>
+        ))}
+        {closed ? null : (
           <div className="row" style={{ marginTop: 12 }}>
-            <select value={serviceId} onChange={(event) => setServiceId(event.target.value)}>
-              <option value="">Serviço do catálogo</option>
-              {services.map((service) => (
-                <option key={service._id} value={service._id}>
-                  {service.name} · {formatBRL(service.price)}
-                </option>
-              ))}
-            </select>
-            <button type="button" className="btn" disabled={busy} aria-busy={busy} onClick={() => void addService()}>
-              Lançar
+            <label className="field">
+              Serviço do catálogo
+              <select
+                value={serviceId}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setServiceId(next);
+                  const catalog = services.find((service) => service._id === next);
+                  if (catalog) {
+                    setServiceName(catalog.name);
+                    setServicePrice(catalog.price);
+                  }
+                }}
+              >
+                <option value="">Avulso ou catálogo</option>
+                {services.map((service) => (
+                  <option key={service._id} value={service._id}>
+                    {service.name} · {formatBRL(service.price)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Descrição
+              <input
+                value={serviceName}
+                onChange={(event) => {
+                  setServiceName(event.target.value);
+                  if (serviceId) setServiceId('');
+                }}
+                placeholder="Ex.: Regulagem de câmbio"
+              />
+            </label>
+            <MoneyInput label="Preço" valueCents={servicePrice} onChangeCents={setServicePrice} />
+            <label className="field">
+              Qtd
+              <input
+                className="qty-input"
+                type="number"
+                min={1}
+                value={serviceQty}
+                onChange={(event) => setServiceQty(Number(event.target.value) || 1)}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy || (!serviceId && !serviceName.trim())}
+              aria-busy={busy}
+              onClick={() => void addService()}
+            >
+              Lançar serviço
             </button>
           </div>
-          )}
-        </article>
+        )}
 
-        <article className="card">
-          <h3>Peças {['diagnostico', 'orcamento'].includes(order.status) ? '(orçamento, sem reservar)' : '(reserva, depois consumo)'}</h3>
-          {order.parts.map((item) => (
-            <div className="cart-line" key={item._id}>
-              <span>
-                {item.quantity}x {item.name}
-                <div className="muted">
-                  {item.stockStatus === 'consumida'
-                    ? 'consumida'
-                    : item.stockStatus === 'orcamento'
-                      ? 'orçamento'
-                      : 'reservada'}
-                </div>
-              </span>
-              <span className="money">{formatBRL(item.total)}</span>
-              {closed || item.stockStatus === 'consumida' || item.stockStatus === 'orcamento' ? null : (
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={busy}
-                  aria-busy={busy}
-                  onClick={() =>
-                    void run(async () => {
-                      try {
-                        setError('');
-                        setOrder(await post(`/work-orders/${id}/parts/${item._id}/consume`));
-                      } catch (err) {
-                        setError(err instanceof Error ? err.message : 'Falha ao consumir peça');
-                      }
-                    })
-                  }
-                >
-                  Consumir
-                </button>
-              )}
-              {closed ? null : (
+        <h4 style={{ marginTop: 20 }}>Peças</h4>
+        {order.parts.map((item) => (
+          <div className="cart-line" key={item._id}>
+            <span>
+              {item.quantity}x {item.name}
+              <div className="muted">
+                {item.stockStatus === 'consumida'
+                  ? 'consumida'
+                  : item.stockStatus === 'orcamento'
+                    ? 'orçamento'
+                    : 'reservada'}
+              </div>
+            </span>
+            <span className="money">{formatBRL(item.total)}</span>
+            {closed || item.stockStatus === 'consumida' || item.stockStatus === 'orcamento' ? null : (
+              <button
+                type="button"
+                className="btn"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    try {
+                      setError('');
+                      setOrder(await post(`/work-orders/${id}/parts/${item._id}/consume`));
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Falha ao consumir peça');
+                    }
+                  })
+                }
+              >
+                Consumir
+              </button>
+            )}
+            {closed ? null : (
               <button
                 type="button"
                 className="btn btn-ghost"
@@ -526,10 +594,10 @@ export function WorkOrderDetail() {
               >
                 ×
               </button>
-              )}
-            </div>
-          ))}
-          {closed ? null : (
+            )}
+          </div>
+        ))}
+        {closed ? null : (
           <div className="row" style={{ marginTop: 12 }}>
             <EntitySearch
               label="Peça do estoque"
@@ -551,14 +619,20 @@ export function WorkOrderDetail() {
               className="qty-input"
               value={partQty}
               onChange={(event) => setPartQty(Number(event.target.value))}
+              aria-label="Quantidade da peça"
             />
-            <button type="button" className="btn" disabled={busy || !productId} aria-busy={busy} onClick={() => void addPart()}>
-              {['diagnostico', 'orcamento'].includes(order.status) ? 'Incluir no orçamento' : 'Reservar peça'}
+            <button
+              type="button"
+              className="btn"
+              disabled={busy || !productId}
+              aria-busy={busy}
+              onClick={() => void addPart()}
+            >
+              {quoting ? 'Incluir peça no orçamento' : 'Reservar peça'}
             </button>
           </div>
-          )}
-        </article>
-      </div>
+        )}
+      </article>
 
       {can('payments') && !closed ? (
       <article className="card" style={{ marginTop: 16 }}>

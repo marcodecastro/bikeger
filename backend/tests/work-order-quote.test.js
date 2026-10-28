@@ -64,6 +64,19 @@ test('peça no diagnóstico fica no orçamento e não reserva estoque', async ()
   assert.equal(stock.reservedStock || 0, 0);
 });
 
+test('OS aberta aceita serviço e peça no mesmo orçamento', async () => {
+  const { product, order } = await seed();
+  const mixed = await addServiceToWorkOrder(order._id, { name: 'Mão de obra', price: 8000, quantity: 1 });
+  const withPart = await addPartToWorkOrder(mixed._id, { productId: product._id, quantity: 1 });
+  assert.equal(withPart.services.length, 1);
+  assert.equal(withPart.parts.length, 1);
+  assert.equal(withPart.parts[0].stockStatus, 'orcamento');
+  assert.equal(withPart.total, 23990);
+
+  const stock = await Product.findById(product._id);
+  assert.equal(stock.reservedStock || 0, 0);
+});
+
 test('aprovar orçamento reserva a peça; WhatsApp leva o valor', async () => {
   const { product, order } = await seed();
   await updateWorkOrder(order._id, { status: 'diagnostico' });

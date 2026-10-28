@@ -18,7 +18,7 @@ import {
   reverseLedgerForReference,
 } from '../src/services/cashService.js';
 import { createSale } from '../src/services/saleService.js';
-import { addPartToWorkOrder, addPaymentToWorkOrder, addServiceToWorkOrder, cancelWorkOrder, createWorkOrder, WORK_ORDER_GATEWAY_PAYMENT_MESSAGE } from '../src/services/workOrderService.js';
+import { addPartToWorkOrder, addPaymentToWorkOrder, addServiceToWorkOrder, cancelWorkOrder, createWorkOrder, updateWorkOrder, WORK_ORDER_GATEWAY_PAYMENT_MESSAGE } from '../src/services/workOrderService.js';
 import { applyApprovedPayment } from '../src/services/mercadoPagoService.js';
 import { flushJobs } from '../src/utils/jobs.js';
 
@@ -244,6 +244,7 @@ test('OS paga não cancela com caixa fechado: status, pagamento e estoque ficam'
     bike: bike._id,
     complaint: 'A2',
   });
+  await updateWorkOrder(created._id, { status: 'em_servico' });
   await addPartToWorkOrder(created._id, { productId: product._id, quantity: 2 });
   await addPaymentToWorkOrder(created._id, { method: 'dinheiro', amount: 4000 });
   await closeRegister({ countedCash: 0 });

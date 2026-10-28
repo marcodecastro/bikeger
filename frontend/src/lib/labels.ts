@@ -21,7 +21,13 @@ export const OS_FLOW = [
 
 export const OS_KANBAN = [...OS_FLOW.filter((status) => status !== 'entregue'), 'cancelada'];
 
+export const OS_QUOTE = ['aberta', 'diagnostico', 'orcamento'] as const;
+
 export const OS_TERMINAL = ['entregue', 'cancelada'] as const;
+
+export function isOsQuoteStatus(status: string) {
+  return (OS_QUOTE as readonly string[]).includes(status);
+}
 
 export function isOsTerminal(status: string) {
   return (OS_TERMINAL as readonly string[]).includes(status);

@@ -14,6 +14,7 @@ import {
   consumePartOnWorkOrder,
   createWorkOrder,
   removePartFromWorkOrder,
+  updateWorkOrder,
 } from '../src/services/workOrderService.js';
 import { Bike } from '../src/models/Bike.js';
 import { WorkOrder } from '../src/models/WorkOrder.js';
@@ -192,6 +193,7 @@ test('peça na OS nasce reservada; remover libera; consumir baixa', async () => 
     type: 'urbana',
   });
   const order = await createWorkOrder({ customer: customer._id, bike: bike._id, complaint: 'ruído' });
+  await updateWorkOrder(order._id, { status: 'em_servico' });
   const withPart = await addPartToWorkOrder(order._id, { productId: product._id, quantity: 2 });
 
   assert.equal(withPart.parts[0].stockStatus, 'reservada');
